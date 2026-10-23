@@ -1,0 +1,7 @@
+**/target/
+**/build/
+.gradle/
+.kotlin/
+local.properties
+
+**/__pycache__/
