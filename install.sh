@@ -7,7 +7,7 @@ cleanup() { [[ -z "$DOWNLOAD_DIR" ]] || rm -rf -- "$DOWNLOAD_DIR"; }
 trap cleanup EXIT
 
 main() {
-    local installer_url='https://raw.githubusercontent.com/mikhail384/tunnelscope/csqtt-compatible/install-csqtt.sh'
+    local installer_url='https://raw.githubusercontent.com/mikhail384/tunnelscope/52628b222f93615726ff9f67b9b0751e31991749/install-csqtt.sh'
     local installer_sha256='e206c0b39703782b0d2350420bf8c71bc0a30bb1ca09e3ef24f7907c31668c90'
     DOWNLOAD_DIR="$(mktemp -d -t csqtt-download.XXXXXXXX)"
     # The bundled installer reads its own payload, so it must be a real file.
