@@ -2,7 +2,7 @@
 # CSQTT compatible server: standalone installer template, bundled by package_installer.py.
 set -Eeuo pipefail
 umask 077
-readonly CSQTT_INSTALLER_VERSION='2.5.0-compatible.2'
+readonly CSQTT_INSTALLER_VERSION='2.5.0-compatible.3'
 readonly CSQTT_PAYLOAD_SHA256='@PAYLOAD_SHA256@'
 readonly CSQTT_RUST_VERSION='1.97.1'
 WORK_DIR=''
@@ -21,6 +21,15 @@ CSQTT 2.5 с поддержкой Android 2.1.9, focsq и VK TURN Proxy iOS.
   --help                 Эта справка; без изменений системы.
   --extract КАТАЛОГ      Извлечь встроенные исходники; без root и установки.
   --prepare-only КАТАЛОГ Собрать бинарник в каталоге; без установки службы.
+  --backup               Сохранить текущий CSQTT локально; краткий перезапуск.
+  --list-backups         Показать копии и версии; без изменения службы.
+  --rollback ВЕРСИЯ      Вернуть последнюю исправную копию версии, например 2.1.9.
+  --rollback ИМЯ_КОПИИ   Вернуть конкретную копию из --list-backups.
+
+Копии хранятся в /var/backups/csqtt-compatible на вашем VPS. При откате сначала
+сохраняется текущее состояние. Восстанавливаются прежние панель, база и пароли;
+доступы, созданные после выбранной копии, останутся только в копии перед откатом.
+Эти команды не устанавливают зависимости и не пересобирают сервер.
 
 Настройки через окружение (необязательны):
   CSQTT_PEER_PORT=46000 CSQTT_WEB_PORT=46002 CSQTT_PUBLIC_IP=IPv4
@@ -128,6 +137,12 @@ main() {
             output="$2"
             [[ ! -e "$output" ]] || { echo 'Каталог назначения уже существует.' >&2; return 2; }
             if [[ "$1" == --extract ]]; then ACTION=extract; else ACTION=prepare; fi ;;
+        --backup|--list-backups)
+            [[ $# == 1 ]] || { usage >&2; return 2; }
+            ACTION=maintenance ;;
+        --rollback)
+            [[ $# == 2 && -n "$2" ]] || { usage >&2; return 2; }
+            ACTION=maintenance ;;
         '') [[ $# == 0 ]] || return 2 ;;
         *) usage >&2; return 2 ;;
     esac
@@ -154,6 +169,12 @@ main() {
     fi
     extract_source "$WORK_DIR"
     local source="$WORK_DIR/csqtt-compatible"
+    if [[ "$ACTION" == maintenance ]]; then
+        [[ $EUID == 0 ]] || { echo 'Для резервных копий запустите команду через sudo.' >&2; return 1; }
+        command -v python3 >/dev/null || { echo 'Нужен Python 3: sudo apt-get install -y python3' >&2; return 1; }
+        python3 "$source/scripts/install_server.py" "$@"
+        return
+    fi
     if [[ "$ACTION" == prepare ]]; then
         build_server "$source" "$output"
         return

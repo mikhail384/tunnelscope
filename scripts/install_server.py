@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Install a locally built CSQTT binary with systemd and transactional rollback."""
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import ipaddress
 import json
@@ -20,13 +22,14 @@ import time
 import urllib.request
 from urllib.parse import quote
 
-VERSION = "2.5.0-compatible.2"
+VERSION = "2.5.0-compatible.3"
 CONFIG = "/etc/csqtt"
 BINARY = "/usr/local/bin/csqtt"
 UNIT = "/etc/systemd/system/csqtt.service"
 NETWORK = "/usr/local/lib/csqtt-compatible/network-up.sh"
 SYSCTL = "/etc/sysctl.d/99-csqtt-compatible.conf"
 MANAGED_PATHS = (CONFIG, BINARY, UNIT, NETWORK, SYSCTL)
+BACKUPS = "/var/backups/csqtt-compatible"
 
 
 def read_env(path):
@@ -97,13 +100,13 @@ class Installer:
             raise ValueError("Для UDP и web-панели укажите разные номера портов")
         return peer, web
 
-    def preflight(self):
+    def preflight(self, validate_config=True):
         self.command("systemctl", "show-environment")
         unit = self.unit_text()
         if unit and (re.search(r"--desired|--no-web|swg-noded|--iface|--tun-addr", unit)
                      or not re.search(r"ExecStart=/usr/local/bin/csqtt(?:\s|$)", unit)):
             raise RuntimeError("csqtt.service управляется другой установкой или swg-panel")
-        if unit and re.search(r"--config-dir\s+(?!/etc/csqtt(?:\s|$))", unit):
+        if unit and re.search(r"--config-dir(?:\s+|=)(?!/etc/csqtt(?:\s|$))", unit):
             raise RuntimeError("Нестандартный --config-dir; автоматическая замена не выполняется")
         if shutil.which("docker"):
             result = self.command("docker", "ps", "--filter", "name=^/csqtt$", "--format", "{{.ID}}", check=False)
@@ -123,7 +126,219 @@ class Installer:
                 if not unit or not pid.isdigit() or pid == "0" or not owners or any(p != pid for p in owners):
                     raise RuntimeError(f"Порт {number} занят другим процессом; он не будет остановлен")
         # Ensure the saved settings can be read before stopping the current service.
-        self.configuration()
+        if validate_config:
+            self.configuration()
+
+    @contextmanager
+    def maintenance_lock(self):
+        path = self.at('/run/lock/csqtt-compatible-install.lock')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('a') as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RuntimeError('Другой установщик или откат уже работает') from None
+            yield
+
+    def binary_version(self, path):
+        if not path.is_file() or path.is_symlink():
+            return ''
+        try:
+            result = self.run([str(path), '--version'], capture_output=True, text=True, timeout=5)
+            match = re.fullmatch(r'csqtt\s+([0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.-]+)?)', result.stdout.strip())
+            return match[1] if result.returncode == 0 and match else ''
+        except (OSError, subprocess.TimeoutExpired):
+            return ''
+
+    @staticmethod
+    def backup_inventory(directory):
+        """Hash complete managed trees without following config symlinks."""
+        inventory = {}
+        def visit(path):
+            key = path.relative_to(directory).as_posix()
+            if path.is_symlink():
+                inventory[key] = {'symlink': os.readlink(path)}
+            elif path.is_dir():
+                inventory[key] = {'directory': True, 'mode': path.stat().st_mode & 0o7777}
+                for child in sorted(path.iterdir()):
+                    visit(child)
+            elif path.is_file():
+                hasher = hashlib.sha256()
+                with path.open('rb') as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                        hasher.update(chunk)
+                inventory[key] = {'sha256': hasher.hexdigest(), 'mode': path.stat().st_mode & 0o7777}
+            else:
+                raise ValueError(f'Неподдерживаемый файл резервной копии: {key}')
+        for index in range(len(MANAGED_PATHS)):
+            path = directory / str(index)
+            if path.exists() or path.is_symlink():
+                visit(path)
+        return inventory
+
+    def validate_backup(self, directory):
+        base = self.at(BACKUPS)
+        directory = Path(directory)
+        if base.is_symlink() or directory.is_symlink() or directory.parent != base or not directory.is_dir():
+            raise ValueError('Выберите каталог непосредственно в /var/backups/csqtt-compatible')
+        state_file = directory / 'state.json'
+        if state_file.is_symlink() or not state_file.is_file():
+            raise ValueError('Резервная копия не завершена: нет state.json')
+        state = json.loads(state_file.read_text())
+        if not isinstance(state, dict) or any(type(state.get(key)) is not bool for key in ('active', 'enabled')):
+            raise ValueError('Повреждено состояние службы в резервной копии')
+        for index in range(len(MANAGED_PATHS)):
+            if (directory / str(index)).is_symlink():
+                raise ValueError('Основной файл резервной копии не может быть символьной ссылкой')
+        if state.get('format') == 2:
+            if state.get('files') != self.backup_inventory(directory):
+                raise ValueError('Контрольные суммы резервной копии не совпали')
+        elif 'format' in state:
+            raise ValueError('Неизвестный формат резервной копии')
+        # A fresh-install snapshot cannot restore an older application.
+        if not (directory / '0').is_dir() or not all((directory / str(i)).is_file() for i in (1, 2)):
+            raise ValueError('В копии нет прежнего сервера, базы или unit-файла')
+        unit = (directory / '2').read_text()
+        if not re.search(r'ExecStart=/usr/local/bin/csqtt(?:\s|$)', unit) or re.search(r'--desired|--no-web|swg-noded', unit):
+            raise ValueError('Копия относится к другой установке или swg-panel')
+        if re.search(r'--config-dir(?:\s+|=)(?!/etc/csqtt(?:\s|$))', unit):
+            raise ValueError('Копия использует нестандартный каталог конфигурации')
+        if NETWORK in unit and not (directory / '3').is_file():
+            raise ValueError('В копии отсутствует сетевой helper из unit-файла')
+        # Earlier installers did not write checksums; validate their structure,
+        # SQLite database and actual binary version before stopping anything.
+        database = directory / '0/csqtt.db'
+        if database.is_symlink():
+            raise ValueError('База в копии не может быть символьной ссылкой')
+        if database.exists():
+            # SQLite may create/update WAL bookkeeping even with mode=ro.
+            # Check a private copy so checking a backup never changes its hashes.
+            with tempfile.TemporaryDirectory(prefix='csqtt-db-check-') as temporary:
+                copied = Path(temporary) / 'csqtt.db'
+                shutil.copy2(database, copied)
+                for suffix in ('-wal', '-shm'):
+                    sidecar = database.with_name(database.name + suffix)
+                    if sidecar.is_symlink():
+                        raise ValueError('Файлы SQLite в копии не могут быть символьными ссылками')
+                    if sidecar.exists():
+                        shutil.copy2(sidecar, copied.with_name(copied.name + suffix))
+                with sqlite3.connect(copied.as_uri() + '?mode=ro', uri=True) as connection:
+                    if connection.execute('PRAGMA quick_check').fetchall() != [('ok',)]:
+                        raise ValueError('База в резервной копии не прошла проверку SQLite')
+        elif not (directory / '0/passwords.json').is_file():
+            raise ValueError('В резервной копии отсутствует база CSQTT')
+        version = self.binary_version(directory / '1')
+        if not version or (state.get('version') and state['version'] != version):
+            raise ValueError('Не удалось подтвердить версию сохранённого сервера')
+        return {**state, 'version': version, 'directory': directory}
+
+    def available_backups(self):
+        base = self.at(BACKUPS)
+        if base.is_symlink():
+            raise ValueError('Каталог резервных копий не может быть символьной ссылкой')
+        if not base.exists():
+            return []
+        return sorted((p for p in base.iterdir() if p.is_dir()),
+                      key=lambda p: p.stat().st_mtime_ns, reverse=True)
+
+    def select_backup(self, selector):
+        if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', selector):
+            for directory in self.available_backups():
+                try:
+                    detail = self.validate_backup(directory)
+                except (OSError, ValueError, sqlite3.Error) as error:
+                    print(f'Пропущена копия {directory.name}: {error}', flush=True)
+                    continue
+                if detail['version'] == selector:
+                    return detail
+            raise RuntimeError(f'Нет исправной резервной копии CSQTT {selector}. Работающий сервер не изменён.')
+        if not re.fullmatch(r'[a-zA-Z0-9_-]+', selector):
+            raise ValueError('Укажите версию (например 2.1.9) или имя каталога из --list-backups')
+        return self.validate_backup(self.at(BACKUPS) / selector)
+
+    def list_backups(self):
+        directories = self.available_backups()
+        if not directories:
+            print('Локальных резервных копий пока нет. Перед обновлением выполните --backup.')
+        for directory in directories:
+            try:
+                info = self.validate_backup(directory)
+                checked = 'SHA-256' if info.get('format') == 2 else 'старая копия без SHA-256'
+                print(f"{directory.name}  CSQTT {info['version']}  {checked}")
+            except (OSError, ValueError, sqlite3.Error) as error:
+                print(f'{directory.name}  недоступна для отката: {error}')
+
+    def service_state(self):
+        return tuple(self.command('systemctl', action, '--quiet', 'csqtt.service', check=False).returncode == 0
+                     for action in ('is-active', 'is-enabled'))
+
+    def stop_service(self):
+        self.command('systemctl', 'stop', 'csqtt.service')
+        if self.command('systemctl', 'is-active', '--quiet', 'csqtt.service', check=False).returncode == 0:
+            raise RuntimeError('Не удалось остановить службу; файлы не заменены')
+
+    def backup_current(self):
+        self.preflight(validate_config=False)
+        if not self.at(BINARY).is_file() or not self.at(UNIT).is_file() or not self.at(CONFIG).is_dir():
+            raise RuntimeError('Не найдена обычная systemd-установка CSQTT для резервного копирования')
+        active, enabled = self.service_state()
+        self.stop_service()
+        try:
+            directory = self.backup(active, enabled, reason='manual')
+            self.validate_backup(directory)
+        finally:
+            if active:
+                self.command('systemctl', 'start', 'csqtt.service')
+        print(f'Локальная копия сохранена: {directory}')
+        return directory
+
+    def rollback_health(self, active):
+        if not active:
+            return
+        # Do not assume a 2.5-only certificate, secret URL or TUN interface.
+        peer, web = self.parameters()
+        consecutive = 0
+        for _ in range(30):
+            if self.command('systemctl', 'show', 'csqtt.service', '--property=NRestarts', '--value').stdout.strip() not in ('', '0'):
+                raise RuntimeError('Восстановленная служба перезапускается')
+            ready = self.command('systemctl', 'is-active', '--quiet', 'csqtt.service', check=False).returncode == 0
+            pid = self.command('systemctl', 'show', 'csqtt.service', '--property=MainPID', '--value').stdout.strip()
+            for flag, number in (('-lunp', peer), ('-ltnp', web)):
+                sockets = self.command('ss', '-H', flag, f'sport = :{number}').stdout
+                owners = re.findall(r'pid=([0-9]+)', sockets)
+                ready &= pid.isdigit() and pid != '0' and bool(owners) and all(owner == pid for owner in owners)
+            consecutive = consecutive + 1 if ready else 0
+            if consecutive >= 3:
+                return
+            time.sleep(1)
+        raise RuntimeError('После восстановления служба не открыла порты UDP и панели')
+
+    def rollback(self, selector):
+        selected = self.select_backup(selector)
+        self.preflight(validate_config=False)
+        print(f"Восстановление CSQTT {selected['version']} из {selected['directory'].name}", flush=True)
+        active, enabled = self.service_state()
+        self.stop_service()
+        try:
+            rescue = self.backup(active, enabled, reason='before-rollback')
+        except BaseException:
+            if active:
+                self.command('systemctl', 'start', 'csqtt.service')
+            raise
+        print(f'Текущее состояние сохранено: {rescue}', flush=True)
+        try:
+            self.restore(selected['directory'])
+            self.rollback_health(selected['active'])
+        except BaseException:
+            print('Откат не прошёл проверку; возвращаю состояние перед откатом.', flush=True)
+            self.stop_service()
+            self.restore(rescue)
+            self.rollback_health(active)
+            raise
+        print(f"Восстановлен CSQTT {selected['version']}. Панель и база возвращены к выбранной копии.")
+        if not selected['active']:
+            print('В копии служба была остановлена. Запуск: sudo systemctl start csqtt')
+        return rescue
 
     def saved_password(self):
         database = self.at(CONFIG + "/csqtt.db")
@@ -215,8 +430,10 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 """
 
-    def backup(self, active, enabled):
-        base = self.at("/var/backups/csqtt-compatible")
+    def backup(self, active, enabled, reason='before-update'):
+        base = self.at(BACKUPS)
+        if base.is_symlink():
+            raise ValueError('Каталог резервных копий не может быть символьной ссылкой')
         base.mkdir(mode=0o700, parents=True, exist_ok=True)
         directory = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-"), dir=base))
         for index, filename in enumerate(MANAGED_PATHS):
@@ -225,13 +442,18 @@ WantedBy=multi-user.target
                 shutil.copytree(path, directory / str(index), symlinks=True)
             elif path.exists():
                 shutil.copy2(path, directory / str(index))
-        atomic_write(directory / "state.json", json.dumps({"active": active, "enabled": enabled}), 0o600)
+        atomic_write(directory / "state.json", json.dumps({
+            "format": 2, "active": active, "enabled": enabled,
+            "version": self.binary_version(directory / '1'), "reason": reason,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "files": self.backup_inventory(directory),
+        }, indent=2) + '\n', 0o600)
         return directory
 
     def restore(self, backup):
         for index, filename in enumerate(MANAGED_PATHS):
             path, saved = self.at(filename), backup / str(index)
-            if path.is_dir():
+            if path.is_dir() and not path.is_symlink():
                 shutil.rmtree(path)
             else:
                 path.unlink(missing_ok=True)
@@ -342,11 +564,25 @@ def main():
     parser.add_argument("--install", type=Path)
     parser.add_argument("--network-helper", type=Path)
     parser.add_argument("--source", type=Path)
+    maintenance = parser.add_mutually_exclusive_group()
+    maintenance.add_argument('--backup', action='store_true')
+    maintenance.add_argument('--list-backups', action='store_true')
+    maintenance.add_argument('--rollback', metavar='VERSION_OR_ID')
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error("Требуется root")
     installer = Installer()
-    if args.preflight:
+    if (args.backup or args.list_backups or args.rollback) and any((args.preflight, args.install, args.source, args.network_helper)):
+        parser.error('Команды резервного копирования не совмещаются с установкой')
+    if args.list_backups:
+        installer.list_backups()
+    elif args.backup or args.rollback:
+        with installer.maintenance_lock():
+            if args.backup:
+                installer.backup_current()
+            else:
+                installer.rollback(args.rollback)
+    elif args.preflight:
         installer.preflight()
         print("Предварительная проверка пройдена.")
     elif args.install and args.network_helper and args.source:
@@ -361,7 +597,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, interrupted)
     try:
         main()
-    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, RuntimeError, sqlite3.Error, subprocess.CalledProcessError) as error:
         # Never dump the inherited environment or credentials on failure.
         print(f"Ошибка: {error}", file=__import__("sys").stderr)
         raise SystemExit(1)
