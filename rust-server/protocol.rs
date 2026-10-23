@@ -2770,6 +2770,13 @@ impl ProtocolEngine {
                 .map(u32::from_be_bytes)
                 .map(u64::from)
                 .unwrap_or(session.id);
+            if self.legacy_reassembler.try_deliver_in_order_from(peer, header) {
+                // The authenticated, source-checked packet is already ordered:
+                // write from the receive buffer without allocating a Vec and
+                // routing it through the pending queue/session lookup again.
+                self.write_ingress_packet(slot, payload, sink);
+                return;
+            }
             self.legacy_reassembler.push_from_at(
                 peer,
                 header,
@@ -3295,6 +3302,18 @@ impl DataplaneLogic for ProtocolEngine {
     fn on_tun_batch_end<S: PacketOutput>(&mut self, _sink: &mut S) {}
 
     fn on_udp_batch_end<S: PacketOutput>(&mut self, _sink: &mut S) {}
+
+    fn next_deadline(&self) -> Option<Instant> {
+        self.legacy_reassembler.next_deadline_ms().map(|ms| {
+            self.started + Duration::from_millis(ms.saturating_sub(1))
+        })
+    }
+
+    fn on_deadline<S: PacketOutput>(&mut self, sink: &mut S) {
+        self.legacy_reassembler
+            .flush_expired_at(self.monotonic_ms, &mut self.legacy_ready);
+        self.drain_legacy_ingress(sink);
+    }
 
     fn begin_batch(&mut self, now: Instant) {
         self.batch_now = now;
@@ -5685,6 +5704,49 @@ mod tests {
         }
     }
 
+    /// CPU-only benchmark of the real ingress path; excludes TURN, encryption and TUN syscalls.
+    #[test]
+    #[ignore = "manual release benchmark; cargo test --release hotpath_bench -- --ignored --nocapture"]
+    fn hotpath_bench_cqf1_ingress() {
+        use std::hint::black_box;
+        struct CountingSink(u64);
+        impl PacketOutput for CountingSink {
+            fn client_data_headroom(&self, _: usize, _: usize, _: usize) -> usize { 64 }
+            fn send_udp_prioritized<F: FnOnce(&mut PacketBuf) -> bool>(
+                &mut self, _: SocketAddr, _: Option<IpAddr>, _: bool, _: bool, _: F,
+            ) -> bool { false }
+            fn send_udp_client_with_headroom<F: FnOnce(&mut PacketBuf) -> bool>(
+                &mut self, _: usize, _: SocketAddr, _: Option<IpAddr>, _: bool, _: bool, _: usize, _: F,
+            ) -> bool { false }
+            fn request_udp_flush(&mut self) {}
+            fn write_tun(&mut self, payload: &[u8]) -> bool {
+                self.0 += black_box(payload).len() as u64;
+                black_box(payload[40]);
+                true
+            }
+        }
+        let iterations = 500_000u32;
+        for size in [64, 1200, 1500] {
+            let (mut engine, _events) = fixture_engine("wire-password");
+            let peer = SocketAddr::from(([198, 51, 100, 46], 46000));
+            engine.handle_unknown_legacy(peer, None, &fixture_wire());
+            let (slot, session) = engine.sessions.iter().next().unwrap();
+            let id = session.id;
+            engine.activate_tunnel(id, [10, 66, 67, 3], 12, 1, 3);
+            let mut frame = vec![0; flow_frame::FRAME_LEN];
+            frame.extend_from_slice(&tcp_packet(size, [10, 66, 67, 3], [1, 1, 1, 1]));
+            let mut sink = CountingSink(0);
+            let start = Instant::now();
+            for sequence in 0..iterations {
+                flow_frame::FrameHeader { sender_id: 7, flow_id: 9, sequence }.encode(&mut frame);
+                engine.write_ingress_packet(slot, black_box(&frame), &mut sink);
+            }
+            let ns = start.elapsed().as_nanos() as f64 / f64::from(iterations);
+            assert_eq!(sink.0, u64::from(iterations) * size as u64);
+            println!("BENCH cqf1_ingress size={size} ns_per_packet={ns:.2}");
+        }
+    }
+
     #[test]
     fn original_219_audio_fixture_receives_a_legacy_ready_reply() {
         let (mut engine, _events) = fixture_engine("wire-password");
@@ -5729,6 +5791,35 @@ mod tests {
         }
         assert_eq!(sink.tun.iter().map(|p| p[40]).collect::<Vec<_>>(), [0, 1]);
         assert_eq!(engine.uplink_source_drops, 1);
+    }
+
+    #[test]
+    fn cqf1_gap_has_a_deadline_independent_of_maintenance_and_new_arrivals() {
+        let (mut engine, _events) = fixture_engine("wire-password");
+        let peer = SocketAddr::from(([198, 51, 100, 46], 46000));
+        engine.handle_unknown_legacy(peer, None, &fixture_wire());
+        let (slot, session) = engine.sessions.iter().next().unwrap();
+        let id = session.id;
+        engine.activate_tunnel(id, [10, 66, 67, 3], 12, 1, 3);
+        let now = engine.started + Duration::from_millis(5);
+        engine.begin_batch(now);
+        let mut frame = vec![0; flow_frame::FRAME_LEN];
+        flow_frame::FrameHeader { sender_id: 7, flow_id: 9, sequence: 1 }.encode(&mut frame);
+        let payload = tcp_packet(100, [10, 66, 67, 3], [1, 1, 1, 1]);
+        frame.extend_from_slice(&payload);
+        let mut sink = MemorySink::default();
+        engine.write_ingress_packet(slot, &frame, &mut sink);
+        assert!(sink.tun.is_empty());
+        let deadline = engine.next_deadline().unwrap();
+        assert_eq!(deadline.duration_since(now), Duration::from_millis(12));
+        engine.begin_batch(deadline - Duration::from_millis(1));
+        engine.on_deadline(&mut sink);
+        assert!(sink.tun.is_empty());
+        engine.begin_batch(deadline);
+        engine.on_deadline(&mut sink);
+        assert_eq!(sink.tun, [payload]);
+        assert_eq!(engine.next_deadline(), None);
+        assert_eq!(engine.sessions[slot].up_total, 100);
     }
 
     #[test]

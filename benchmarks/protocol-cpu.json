@@ -1,0 +1,199 @@
+{
+  "baseline_commit": "1881c79b3de255a8026bcca1e221aa55f778ce2d",
+  "build": "cargo test --release --locked; identical benchmark functions in both versions",
+  "scope": "CPU microbenchmarks only; no TURN, encryption, TUN syscalls or Internet throughput",
+  "architecture": "x86_64",
+  "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+  "pinned_cpu": 0,
+  "runs": 7,
+  "results": {
+    "server": {
+      "idle_flow_timer flows=4096 ns_per_call": {
+        "before": [
+          6749.3,
+          6281.7,
+          6301.59,
+          6295.87,
+          6446.68,
+          6019.89,
+          6048.6
+        ],
+        "after": [
+          0.81,
+          0.82,
+          0.82,
+          0.81,
+          0.81,
+          0.81,
+          0.82
+        ],
+        "median_before": 6295.87,
+        "median_after": 0.81,
+        "speedup": 7772.679
+      },
+      "cqf1_ingress size=64 ns_per_packet": {
+        "before": [
+          74.91,
+          70.89,
+          68.6,
+          69.16,
+          69.92,
+          68.03,
+          66.79
+        ],
+        "after": [
+          35.4,
+          36.21,
+          35.51,
+          35.26,
+          36.44,
+          36.07,
+          33.96
+        ],
+        "median_before": 69.16,
+        "median_after": 35.51,
+        "speedup": 1.948
+      },
+      "cqf1_ingress size=1200 ns_per_packet": {
+        "before": [
+          95.04,
+          92.9,
+          88.93,
+          100.94,
+          87.57,
+          88.18,
+          86.79
+        ],
+        "after": [
+          37.02,
+          36.95,
+          35.34,
+          35.7,
+          35.81,
+          35.14,
+          34.25
+        ],
+        "median_before": 88.93,
+        "median_after": 35.7,
+        "speedup": 2.491
+      },
+      "cqf1_ingress size=1500 ns_per_packet": {
+        "before": [
+          99.04,
+          94.5,
+          96.49,
+          109.52,
+          97.23,
+          95.71,
+          90.42
+        ],
+        "after": [
+          35.77,
+          36.45,
+          34.61,
+          34.77,
+          35.24,
+          34.62,
+          34.31
+        ],
+        "median_before": 96.49,
+        "median_after": 34.77,
+        "speedup": 2.775
+      }
+    },
+    "client": {
+      "uplink_accounting streams=9 ns_per_packet": {
+        "before": [
+          35.21,
+          35.3,
+          35.64,
+          37.63,
+          37.83,
+          37.29,
+          34.61
+        ],
+        "after": [
+          11.67,
+          11.37,
+          11.82,
+          11.61,
+          11.49,
+          11.82,
+          13.23
+        ],
+        "median_before": 35.64,
+        "median_after": 11.67,
+        "speedup": 3.054
+      },
+      "uplink_accounting streams=36 ns_per_packet": {
+        "before": [
+          118.58,
+          119.17,
+          117.59,
+          122.18,
+          119.24,
+          121.08,
+          117.06
+        ],
+        "after": [
+          11.41,
+          12.67,
+          11.91,
+          11.63,
+          12.15,
+          11.55,
+          11.74
+        ],
+        "median_before": 119.17,
+        "median_after": 11.74,
+        "speedup": 10.151
+      },
+      "uplink_accounting streams=99 ns_per_packet": {
+        "before": [
+          310.41,
+          308.84,
+          313.44,
+          316.53,
+          312.22,
+          325.95,
+          326.13
+        ],
+        "after": [
+          11.82,
+          11.72,
+          12.34,
+          12.12,
+          12.3,
+          12.05,
+          11.46
+        ],
+        "median_before": 313.44,
+        "median_after": 12.05,
+        "speedup": 26.012
+      },
+      "idle_flow_timer flows=4096 ns_per_call": {
+        "before": [
+          6410.9,
+          6203.49,
+          6084.28,
+          6351.71,
+          5983.18,
+          6751.26,
+          6193.48
+        ],
+        "after": [
+          0.81,
+          0.81,
+          0.81,
+          0.81,
+          0.81,
+          0.82,
+          0.81
+        ],
+        "median_before": 6203.49,
+        "median_after": 0.81,
+        "speedup": 7658.63
+      }
+    }
+  }
+}

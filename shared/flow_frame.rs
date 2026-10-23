@@ -119,6 +119,9 @@ struct FlowState<T> {
 pub struct FlowReassembler<T> {
     flows: HashMap<ReassemblyKey, FlowState<T>>,
     pending_total: usize,
+    // May be earlier than the next live gap after a gap is filled. An early
+    // wake is harmless; flush recomputes it. Never later than a live deadline.
+    next_deadline_ms: Option<u64>,
     started: Instant,
 }
 
@@ -133,6 +136,7 @@ impl<T> FlowReassembler<T> {
         Self {
             flows: HashMap::with_capacity(MAX_TRACKED_FLOWS),
             pending_total: 0,
+            next_deadline_ms: None,
             started: Instant::now(),
         }
     }
@@ -154,13 +158,60 @@ impl<T> FlowReassembler<T> {
     }
 
     pub fn flush_expired_at(&mut self, now_ms: u64, output: &mut VecDeque<T>) {
+        if self
+            .next_deadline_ms
+            .is_none_or(|deadline| now_ms < deadline)
+        {
+            return;
+        }
+        self.next_deadline_ms = None;
         for state in self.flows.values_mut() {
             let before = state.pending.len();
             release_expired(state, now_ms, output);
             self.pending_total = self
                 .pending_total
                 .saturating_sub(before - state.pending.len());
+            remember_deadline(&mut self.next_deadline_ms, state.gap_started_ms);
         }
+    }
+
+    pub fn next_deadline_ms(&self) -> Option<u64> {
+        self.next_deadline_ms
+    }
+
+    /// Deliver borrowed payloads directly when no reordering is needed. The
+    /// caller must validate the payload before advancing its sequence here.
+    /// False leaves this packet for push_from_at, which owns buffered payloads.
+    pub fn try_deliver_in_order_from(&mut self, peer: u64, header: FrameHeader) -> bool {
+        let key = ReassemblyKey {
+            peer,
+            sender_id: header.sender_id,
+            flow_id: header.flow_id,
+        };
+        if let Some(state) = self.flows.get_mut(&key) {
+            if header.sequence != state.expected || !state.pending.is_empty() {
+                return false;
+            }
+            state.expected = state.expected.wrapping_add(1);
+            return true;
+        }
+        if header.sequence != 0 {
+            return false;
+        }
+        if self.flows.len() == MAX_TRACKED_FLOWS {
+            self.flows.clear();
+            self.pending_total = 0;
+            self.next_deadline_ms = None;
+        }
+        self.flows.insert(
+            key,
+            FlowState {
+                expected: 1,
+                gap_started_ms: None,
+                pending: Vec::new(),
+            },
+        );
+        true
     }
 
     pub fn push_from_at(
@@ -176,9 +227,26 @@ impl<T> FlowReassembler<T> {
             sender_id: header.sender_id,
             flow_id: header.flow_id,
         };
+        self.push_inner(key, header.sequence, value, now_ms, output);
+        if self.pending_total == 0 {
+            self.next_deadline_ms = None;
+        } else if let Some(state) = self.flows.get(&key) {
+            remember_deadline(&mut self.next_deadline_ms, state.gap_started_ms);
+        }
+    }
+
+    fn push_inner(
+        &mut self,
+        key: ReassemblyKey,
+        sequence: u32,
+        value: T,
+        now_ms: u64,
+        output: &mut VecDeque<T>,
+    ) {
         if self.flows.len() == MAX_TRACKED_FLOWS && !self.flows.contains_key(&key) {
             self.flows.clear();
             self.pending_total = 0;
+            self.next_deadline_ms = None;
         }
         let state = self.flows.entry(key).or_insert_with(|| FlowState {
             expected: 0,
@@ -190,22 +258,27 @@ impl<T> FlowReassembler<T> {
         self.pending_total = self
             .pending_total
             .saturating_sub(pending_before.saturating_sub(state.pending.len()));
-        if header.sequence == state.expected {
+        if sequence == state.expected {
             output.push_back(value);
             state.expected = state.expected.wrapping_add(1);
             state.gap_started_ms = None;
             let pending_before = state.pending.len();
             drain_contiguous(state, output);
+            // Receiving the expected packet may expose another gap. Keep a
+            // timer for it even if no more packets arrive on this flow.
+            if !state.pending.is_empty() {
+                state.gap_started_ms = Some(now_ms);
+            }
             self.pending_total = self
                 .pending_total
                 .saturating_sub(pending_before.saturating_sub(state.pending.len()));
             return;
         }
-        if !is_forward(header.sequence, state.expected)
+        if !is_forward(sequence, state.expected)
             || state
                 .pending
                 .iter()
-                .any(|pending| pending.sequence == header.sequence)
+                .any(|pending| pending.sequence == sequence)
         {
             return;
         }
@@ -219,7 +292,7 @@ impl<T> FlowReassembler<T> {
         if self.pending_total == MAX_PENDING_TOTAL {
             if state.pending.is_empty() {
                 output.push_back(value);
-                state.expected = header.sequence.wrapping_add(1);
+                state.expected = sequence.wrapping_add(1);
                 state.gap_started_ms = None;
                 return;
             }
@@ -229,10 +302,7 @@ impl<T> FlowReassembler<T> {
                 .pending_total
                 .saturating_sub(pending_before.saturating_sub(state.pending.len()));
         }
-        state.pending.push(Pending {
-            sequence: header.sequence,
-            value,
-        });
+        state.pending.push(Pending { sequence, value });
         self.pending_total += 1;
         if self.pending_total > MAX_PENDING_TOTAL {
             let pending_before = state.pending.len();
@@ -259,6 +329,13 @@ impl<T> FlowReassembler<T> {
     #[cfg(test)]
     fn pending_total(&self) -> usize {
         self.pending_total
+    }
+}
+
+fn remember_deadline(next: &mut Option<u64>, gap_started: Option<u64>) {
+    if let Some(started) = gap_started {
+        let deadline = started.saturating_add(GAP_RELEASE_AFTER_MS);
+        *next = Some(next.map_or(deadline, |current| current.min(deadline)));
     }
 }
 
@@ -510,6 +587,33 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "manual release benchmark; cargo test --release hotpath_bench -- --ignored --nocapture"]
+    fn hotpath_bench_idle_flow_timer() {
+        use std::hint::black_box;
+        let mut state = FlowReassembler::new();
+        let mut output = VecDeque::new();
+        for flow_id in 0..MAX_TRACKED_FLOWS as u64 {
+            state.push_at(
+                FrameHeader {
+                    flow_id,
+                    ..header(0)
+                },
+                1u8,
+                0,
+                &mut output,
+            );
+        }
+        output.clear();
+        let iterations = 50_000;
+        let start = Instant::now();
+        for now_ms in 0..iterations {
+            black_box(&mut state).flush_expired_at(black_box(now_ms), &mut output);
+        }
+        let ns = start.elapsed().as_nanos() as f64 / iterations as f64;
+        println!("BENCH idle_flow_timer flows={MAX_TRACKED_FLOWS} ns_per_call={ns:.2}");
+    }
+
+    #[test]
     fn timer_releases_a_gap_without_more_packets() {
         let mut state = FlowReassembler::new();
         let mut output = VecDeque::new();
@@ -518,6 +622,72 @@ mod tests {
         assert!(output.is_empty());
         state.flush_expired_at(GAP_RELEASE_AFTER_MS, &mut output);
         assert_eq!(output.into_iter().collect::<Vec<_>>(), [7]);
+    }
+
+    #[test]
+    fn filling_one_gap_keeps_timer_for_the_next_gap() {
+        let mut state = FlowReassembler::new();
+        let mut output = VecDeque::new();
+        state.push_at(header(1), 1, 0, &mut output);
+        state.push_at(header(3), 3, 0, &mut output);
+        state.push_at(header(0), 0, 1, &mut output);
+        assert_eq!(output.iter().copied().collect::<Vec<_>>(), [0, 1]);
+        state.flush_expired_at(12, &mut output);
+        assert_eq!(state.next_deadline_ms(), Some(13));
+        state.flush_expired_at(13, &mut output);
+        assert_eq!(output.into_iter().collect::<Vec<_>>(), [0, 1, 3]);
+        assert_eq!(state.next_deadline_ms(), None);
+        assert_eq!(state.pending_total(), 0);
+    }
+
+    #[test]
+    fn ordered_fast_path_preserves_peer_isolation_duplicates_and_reordering() {
+        let mut state = FlowReassembler::new();
+        let mut output = VecDeque::new();
+        assert!(state.try_deliver_in_order_from(1, header(0)));
+        assert!(state.try_deliver_in_order_from(2, header(0)));
+        assert!(!state.try_deliver_in_order_from(1, header(0)));
+        state.push_from_at(1, header(0), 99, 0, &mut output);
+        assert!(output.is_empty());
+        assert!(!state.try_deliver_in_order_from(1, header(2)));
+        state.push_from_at(1, header(2), 2, 0, &mut output);
+        assert!(!state.try_deliver_in_order_from(1, header(1)));
+        state.push_from_at(1, header(1), 1, 1, &mut output);
+        assert_eq!(output.into_iter().collect::<Vec<_>>(), [1, 2]);
+        assert!(state.try_deliver_in_order_from(1, header(3)));
+        assert_eq!(state.next_deadline_ms(), None);
+    }
+
+    #[test]
+    fn fast_and_owning_paths_agree_under_loss_duplicates_and_reordering() {
+        let mut fast = FlowReassembler::new();
+        let mut normal = FlowReassembler::new();
+        let (mut a, mut b) = (VecDeque::new(), VecDeque::new());
+        let mut seed = 17u64;
+        for block in 0..500u32 {
+            let mut arrivals: Vec<_> = (block * 12..block * 12 + 12).collect();
+            for idx in 0..arrivals.len() {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                arrivals.swap(idx, seed as usize % 12);
+            }
+            for sequence in arrivals.into_iter().filter(|seq| seq % 17 != 8) {
+                let now = u64::from(block) * 20;
+                for _ in 0..2 {
+                    if fast.try_deliver_in_order_from(1, header(sequence)) {
+                        a.push_back(sequence);
+                    } else {
+                        fast.push_from_at(1, header(sequence), sequence, now, &mut a);
+                    }
+                    normal.push_from_at(1, header(sequence), sequence, now, &mut b);
+                    assert_eq!(a, b);
+                }
+            }
+            fast.flush_expired_at(u64::from(block) * 20 + 12, &mut a);
+            normal.flush_expired_at(u64::from(block) * 20 + 12, &mut b);
+            assert_eq!(a, b);
+            a.clear();
+            b.clear();
+        }
     }
 
     #[test]

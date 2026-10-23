@@ -1490,15 +1490,10 @@ async fn reader_loop(
         configured_workers,
     } = runtime;
     let mut dropped_non_ip = 0u64;
-    let mut legacy_tick = tokio::time::interval(Duration::from_millis(12));
     loop {
         let packet = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Ok(()),
-            _ = legacy_tick.tick() => {
-                dispatcher.flush_legacy_incoming();
-                continue;
-            }
             result = transport.recv() => result?,
         };
         if is_panel_restart_notice(packet.as_slice()) {

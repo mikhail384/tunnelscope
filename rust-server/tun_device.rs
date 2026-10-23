@@ -203,8 +203,10 @@ impl ClientRoute {
         if elapsed >= 0.0001 {
             self.tokens[idx] =
                 (self.tokens[idx] + elapsed * TB_RATE_BYTES_PER_SEC).min(TB_CAPACITY_BYTES);
+            // Preserve sub-100us time between calls instead of repeatedly
+            // throwing it away when packets arrive faster than the threshold.
+            self.last_update[idx] = now;
         }
-        self.last_update[idx] = now;
     }
 
     fn evict_flows(&mut self, now: std::time::Instant) {
@@ -539,6 +541,26 @@ mod tests {
             let ep = table.select_test_len(2, now, 1200).unwrap();
             assert_eq!(ep.worker_id, (i % 3 + 1) as u16);
         }
+    }
+
+    #[test]
+    fn frequent_refills_preserve_elapsed_time_and_capacity() {
+        let mut route = ClientRoute::default();
+        route.register(RouteEndpoint {
+            session_id: 1,
+            registration_id: 1,
+            worker_id: 1,
+            slot: 0,
+        });
+        let start = std::time::Instant::now();
+        route.last_update[0] = start;
+        route.tokens[0] = 0.0;
+        for index in 1..=100 {
+            route.refill(0, start + std::time::Duration::from_micros(index * 10));
+        }
+        assert!((route.tokens[0] - TB_RATE_BYTES_PER_SEC * 0.001).abs() < 0.001);
+        route.refill(0, start + std::time::Duration::from_secs(1));
+        assert_eq!(route.tokens[0], TB_CAPACITY_BYTES);
     }
 
     fn tcp_packet(len: usize, sport: u16) -> Vec<u8> {

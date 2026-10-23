@@ -45,6 +45,10 @@ pub trait DataplaneLogic: Send + 'static {
     fn begin_batch(&mut self, now: Instant);
     fn on_command<S: PacketOutput>(&mut self, command: Self::Command, sink: &mut S);
     fn on_tick<S: PacketOutput>(&mut self, sink: &mut S);
+    fn next_deadline(&self) -> Option<Instant> {
+        None
+    }
+    fn on_deadline<S: PacketOutput>(&mut self, _sink: &mut S) {}
     fn on_io_counters(&mut self, counters: IoCounters);
 }
 
@@ -362,6 +366,13 @@ where
         }};
     }
 
+    macro_rules! handle_deadline {
+        () => {{
+            logic.begin_batch(Instant::now());
+            io.with_sink(|sink| logic.on_deadline(sink));
+        }};
+    }
+
     macro_rules! handle_command {
         ($command:expr) => {{
             let mut keep_running = true;
@@ -403,11 +414,13 @@ where
     while !shutdown.load(Ordering::Acquire) && !cancel_token.is_cancelled() {
         let udp_pending = io.pending_udp_tx_len() != 0;
         let tun_pending = io.pending_tun_tx_len() != 0;
+        let deadline = logic.next_deadline();
         if prefer_udp {
             tokio::select! {
                 biased;
                 _ = cancel_token.cancelled() => break,
                 _ = tick.tick() => handle_tick!(),
+                _ = wait_for_deadline(deadline) => handle_deadline!(),
                 command = command_rx.recv() => handle_command!(command),
                 _ = io.udp.writable(), if udp_pending => {
                     io.flush_udp_tx(usize::MAX);
@@ -429,6 +442,7 @@ where
                 biased;
                 _ = cancel_token.cancelled() => break,
                 _ = tick.tick() => handle_tick!(),
+                _ = wait_for_deadline(deadline) => handle_deadline!(),
                 command = command_rx.recv() => handle_command!(command),
                 _ = io.udp.writable(), if udp_pending => {
                     io.flush_udp_tx(usize::MAX);
@@ -482,6 +496,30 @@ where
         io.flush_tun_tx();
     }
     Ok(())
+}
+
+async fn wait_for_deadline(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn packet_deadline_wakes_before_maintenance_tick_and_idle_does_not_wake() {
+        let start = tokio::time::Instant::now();
+        wait_for_deadline(Some(start.into_std() + Duration::from_millis(12))).await;
+        assert_eq!(start.elapsed(), Duration::from_millis(12));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), wait_for_deadline(None))
+                .await
+                .is_err()
+        );
+    }
 }
 
 fn sleep_backoff(total: Duration, shutdown: &AtomicBool) {

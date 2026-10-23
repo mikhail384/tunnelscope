@@ -206,9 +206,9 @@ impl RateController {
 
 #[derive(Default)]
 pub struct UplinkState {
-    pub last_update: Option<std::time::Instant>,
     pub tokens: Vec<f64>,
     rates: Vec<RateController>,
+    last_refill: Vec<std::time::Instant>,
     pub cursor: usize,
     flows: HashMap<FlowKey, FlowState>,
     flow_evict_counter: u32,
@@ -219,39 +219,42 @@ impl UplinkState {
         Self::default()
     }
 
-    pub fn update_tokens(&mut self, count: usize, now: std::time::Instant) {
-        if count <= 1 {
-            return;
-        }
-
+    fn ensure_streams(&mut self, count: usize, now: std::time::Instant) {
         if self.tokens.len() != count {
             self.tokens.resize(count, TB_CAPACITY_BYTES);
             self.rates.resize_with(count, RateController::new);
-            self.last_update = Some(now);
+            self.last_refill.resize(count, now);
+            self.last_refill.fill(now);
             // Индексы воркеров сдвинулись — старые flowlet-привязки больше не
             // действительны.
             self.flows.clear();
             self.flow_evict_counter = 0;
         }
+    }
 
-        for controller in self.rates.iter_mut() {
-            controller.tick(now);
-        }
-
-        let start = match self.last_update {
-            Some(s) => s,
-            None => {
-                self.last_update = Some(now);
-                now
-            }
-        };
-
-        let elapsed = now.saturating_duration_since(start).as_secs_f64();
+    // A packet inside a flow burst only touches its assigned stream. Updating
+    // every stream here costs O(streams) per packet while holding the uplink lock.
+    fn refill(&mut self, idx: usize, now: std::time::Instant) {
+        let controller = &mut self.rates[idx];
+        controller.tick(now);
+        let elapsed = now
+            .saturating_duration_since(self.last_refill[idx])
+            .as_secs_f64();
         if elapsed >= 0.0001 {
-            self.last_update = Some(now);
-            for (t, controller) in self.tokens.iter_mut().zip(self.rates.iter()) {
-                *t = (*t + elapsed * controller.rate).min(TB_CAPACITY_BYTES);
-            }
+            self.last_refill[idx] = now;
+            self.tokens[idx] =
+                (self.tokens[idx] + elapsed * controller.rate).min(TB_CAPACITY_BYTES);
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn update_tokens(&mut self, count: usize, now: std::time::Instant) {
+        if count <= 1 {
+            return;
+        }
+        self.ensure_streams(count, now);
+        for idx in 0..count {
+            self.refill(idx, now);
         }
     }
 
@@ -269,7 +272,8 @@ impl UplinkState {
         if stream_idx >= count {
             return false;
         }
-        self.update_tokens(count, now);
+        self.ensure_streams(count, now);
+        self.refill(stream_idx, now);
 
         let len_f = packet_len as f64;
         self.tokens[stream_idx] = (self.tokens[stream_idx] - len_f).max(MAX_DEFICIT);
@@ -290,7 +294,7 @@ impl UplinkState {
 
     /// Выбираем здоровый поток с наибольшим запасом токенов, обходя список
     /// начиная с `cursor`. Токены здесь не списываются.
-    fn choose_stream(&mut self, workers: &[WorkerEntry]) -> Option<usize> {
+    fn choose_stream(&mut self, workers: &[WorkerEntry], now: std::time::Instant) -> Option<usize> {
         let count = workers.len();
         if count == 0 {
             return None;
@@ -300,6 +304,7 @@ impl UplinkState {
         let mut best_tokens = f64::NEG_INFINITY;
         for offset in 0..count {
             let idx = (start + offset) % count;
+            self.refill(idx, now);
             let allocation = &workers[idx].channels.allocation;
             if !allocation.is_sendable() {
                 if allocation.is_alive()
@@ -337,11 +342,11 @@ impl UplinkState {
         if count <= 1 {
             return 0;
         }
-        self.update_tokens(count, now);
+        self.ensure_streams(count, now);
         let len_f = total_len as f64;
 
         let Some(key) = flow else {
-            let Some(idx) = self.choose_stream(workers) else {
+            let Some(idx) = self.choose_stream(workers, now) else {
                 return 0;
             };
             self.tokens[idx] = (self.tokens[idx] - len_f).max(MAX_DEFICIT);
@@ -363,11 +368,12 @@ impl UplinkState {
                 let idx = state.idx;
                 state.burst_left = state.burst_left.saturating_sub(total_len);
                 self.flows.insert(key, state);
+                self.refill(idx, now);
                 self.tokens[idx] = (self.tokens[idx] - len_f).max(MAX_DEFICIT);
                 return idx;
             }
 
-            let Some(idx) = self.choose_stream(workers) else {
+            let Some(idx) = self.choose_stream(workers, now) else {
                 return 0;
             };
             state.idx = idx;
@@ -377,7 +383,7 @@ impl UplinkState {
             return idx;
         }
 
-        let Some(idx) = self.choose_stream(workers) else {
+        let Some(idx) = self.choose_stream(workers, now) else {
             return 0;
         };
         self.flows.insert(
@@ -500,6 +506,7 @@ pub struct Dispatcher {
     pool: Arc<PacketPool>,
     reassembler: crate::wire_protocol::ShardedReassembler,
     legacy_mode: std::sync::atomic::AtomicBool,
+    legacy_wake: Notify,
     legacy_incoming: Mutex<(
         crate::flow_frame::FlowReassembler<PacketBuf>,
         VecDeque<PacketBuf>,
@@ -535,6 +542,7 @@ impl Dispatcher {
             pool: pool.clone(),
             reassembler: crate::wire_protocol::ShardedReassembler::new(),
             legacy_mode: std::sync::atomic::AtomicBool::new(false),
+            legacy_wake: Notify::new(),
             legacy_incoming: Mutex::new((
                 crate::flow_frame::FlowReassembler::new(),
                 VecDeque::new(),
@@ -554,6 +562,7 @@ impl Dispatcher {
             },
         );
         dispatcher.tasks.lock().await.push(task);
+        dispatcher.start_legacy_timer().await;
         Ok(dispatcher)
     }
 
@@ -617,6 +626,7 @@ impl Dispatcher {
             pool: pool.clone(),
             reassembler: crate::wire_protocol::ShardedReassembler::new(),
             legacy_mode: std::sync::atomic::AtomicBool::new(false),
+            legacy_wake: Notify::new(),
             legacy_incoming: Mutex::new((
                 crate::flow_frame::FlowReassembler::new(),
                 VecDeque::new(),
@@ -726,6 +736,7 @@ impl Dispatcher {
             );
             dispatcher.tasks.lock().await.push(io_task);
             dispatcher.tasks.lock().await.push(receive_task);
+            dispatcher.start_legacy_timer().await;
             Ok((dispatcher, "0".to_owned()))
         } else {
             let socket = bind_udp(listen).await?;
@@ -761,6 +772,7 @@ impl Dispatcher {
                 .lock()
                 .await
                 .extend([read_task, write_task]);
+            dispatcher.start_legacy_timer().await;
             Ok((dispatcher, local_port))
         }
     }
@@ -824,7 +836,46 @@ impl Dispatcher {
         self.legacy_mode.store(legacy, Ordering::Release);
     }
 
-    pub fn flush_legacy_incoming(&self) {
+    async fn start_legacy_timer(self: &Arc<Self>) {
+        let dispatcher = self.clone();
+        let task = spawn_critical(
+            "legacy reorder timer",
+            self.cancel.clone(),
+            self.termination.clone(),
+            async move {
+                loop {
+                    let deadline = dispatcher
+                        .legacy_incoming
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .0
+                        .next_deadline_ms();
+                    let wait = async {
+                        match deadline {
+                            Some(ms) => {
+                                tokio::time::sleep(Duration::from_millis(
+                                    ms.saturating_sub(crate::flow_frame::elapsed_ms()),
+                                ))
+                                .await
+                            }
+                            None => std::future::pending::<()>().await,
+                        }
+                    };
+                    tokio::select! {
+                        biased;
+                        _ = dispatcher.cancel.cancelled() => return,
+                        // notify_one stores a permit if the queue changes
+                        // between reading its deadline and polling this future.
+                        _ = dispatcher.legacy_wake.notified() => {},
+                        _ = wait => dispatcher.flush_legacy_incoming(),
+                    }
+                }
+            },
+        );
+        self.tasks.lock().await.push(task);
+    }
+
+    fn flush_legacy_incoming(&self) {
         let mut guard = self
             .legacy_incoming
             .lock()
@@ -847,7 +898,11 @@ impl Dispatcher {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner());
             let (reassembler, ready) = &mut *guard;
+            let before = reassembler.next_deadline_ms();
             reassembler.push_at(header, packet, crate::flow_frame::elapsed_ms(), ready);
+            if before != reassembler.next_deadline_ms() {
+                self.legacy_wake.notify_one();
+            }
             while let Some(packet) = ready.pop_front() {
                 self.push_inbound(packet);
             }
@@ -1976,6 +2031,7 @@ mod tests {
             pool: pool.clone(),
             reassembler: crate::wire_protocol::ShardedReassembler::new(),
             legacy_mode: std::sync::atomic::AtomicBool::new(false),
+            legacy_wake: Notify::new(),
             legacy_incoming: Mutex::new((
                 crate::flow_frame::FlowReassembler::new(),
                 VecDeque::new(),
@@ -2007,6 +2063,57 @@ mod tests {
         assert_eq!(out1.as_slice(), &raw1);
         let out2 = dispatcher.pop_inbound().expect("packet 2");
         assert_eq!(out2.as_slice(), &raw2);
+    }
+
+    #[tokio::test]
+    async fn one_dispatcher_timer_releases_a_gap_without_any_worker_or_new_packet() {
+        let pool = PacketPool::new(16);
+        let (dispatcher, port) = Dispatcher::start(
+            "127.0.0.1:0",
+            None,
+            pool.clone(),
+            Arc::new(Stats::default()),
+            [0; 32],
+            crate::obfs::ObfsMode::Audio,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let payload = ipv4_packet(6, 443, 5000, 60);
+        receiver
+            .send_to(&payload, format!("127.0.0.1:{port}"))
+            .await
+            .unwrap();
+        let mut wire = vec![0; crate::flow_frame::FRAME_LEN];
+        crate::flow_frame::FrameHeader {
+            sender_id: 1,
+            flow_id: 1,
+            sequence: 1,
+        }
+        .encode(&mut wire);
+        wire.extend_from_slice(&payload);
+        let mut packet = pool.acquire();
+        packet.set_read_len(wire.len()).unwrap();
+        packet.as_mut_slice().copy_from_slice(&wire);
+        dispatcher.return_packet(packet);
+        let mut received = [0; 128];
+        let result =
+            tokio::time::timeout(Duration::from_secs(2), receiver.recv(&mut received)).await;
+        dispatcher.shutdown().await;
+        let length = result
+            .expect("gap timer must run without session reader tasks")
+            .unwrap();
+        assert_eq!(&received[..length], payload);
+        assert_eq!(
+            dispatcher
+                .legacy_incoming
+                .lock()
+                .unwrap()
+                .0
+                .next_deadline_ms(),
+            None
+        );
     }
 
     #[test]
@@ -2045,6 +2152,27 @@ mod tests {
         }
         assert_eq!(seen.len(), 1);
         assert!(seen.contains(&0));
+    }
+
+    /// Measures token accounting only, with the same clock/packet sequence at every stream count.
+    #[test]
+    #[ignore = "manual release benchmark; cargo test --release hotpath_bench -- --ignored --nocapture"]
+    fn hotpath_bench_uplink_accounting() {
+        use std::hint::black_box;
+        let iterations = 500_000;
+        for count in [9, 36, 99] {
+            let mut state = UplinkState::new();
+            let epoch = std::time::Instant::now();
+            state.update_tokens(count, epoch);
+            let start = std::time::Instant::now();
+            for index in 0..iterations {
+                let now = epoch + Duration::from_micros(index as u64 * 10);
+                black_box(state.try_follow_stream((index / 12) % count, count, 1200, now));
+            }
+            let ns = start.elapsed().as_nanos() as f64 / iterations as f64;
+            black_box(state);
+            println!("BENCH uplink_accounting streams={count} ns_per_packet={ns:.2}");
+        }
     }
 
     #[test]
@@ -2103,7 +2231,7 @@ mod tests {
         state.rates[1].rate = ADAPTIVE_MAX_RATE_BYTES_PER_SEC;
         state.rates[0].last_adjust = Some(now);
         state.rates[1].last_adjust = Some(now);
-        state.last_update = Some(now);
+        state.last_refill.fill(now);
 
         now += Duration::from_millis(10);
         state.update_tokens(2, now);
@@ -2112,6 +2240,25 @@ mod tests {
         assert!(high > low);
         let expected = (ADAPTIVE_MAX_RATE_BYTES_PER_SEC - ADAPTIVE_MIN_RATE_BYTES_PER_SEC) * 0.010;
         assert!((high - low - expected).abs() < 1.0);
+    }
+
+    #[test]
+    fn following_one_stream_refills_only_that_stream_and_keeps_fractional_time() {
+        let mut state = UplinkState::new();
+        let now = std::time::Instant::now();
+        state.update_tokens(99, now);
+        state.tokens.fill(0.0);
+        for index in 1..=100 {
+            assert!(state.try_follow_stream(7, 99, 0, now + Duration::from_micros(index * 10)));
+        }
+        assert!((state.tokens[7] - TB_RATE_BYTES_PER_SEC * 0.001).abs() < 0.001);
+        assert_eq!(state.tokens[8], 0.0);
+        state.try_follow_stream(8, 99, 0, now + Duration::from_millis(1));
+        assert!((state.tokens[7] - state.tokens[8]).abs() < 0.001);
+        state.ensure_streams(9, now + Duration::from_secs(1));
+        assert_eq!(state.last_refill.len(), 9);
+        assert_eq!(state.rates.len(), 9);
+        assert!(!state.try_follow_stream(98, 9, 100, now));
     }
 
     #[test]
@@ -2158,6 +2305,7 @@ mod tests {
             pool: pool.clone(),
             reassembler: crate::wire_protocol::ShardedReassembler::new(),
             legacy_mode: std::sync::atomic::AtomicBool::new(false),
+            legacy_wake: Notify::new(),
             legacy_incoming: Mutex::new((
                 crate::flow_frame::FlowReassembler::new(),
                 VecDeque::new(),
@@ -2219,6 +2367,7 @@ mod tests {
             pool: pool.clone(),
             reassembler: crate::wire_protocol::ShardedReassembler::new(),
             legacy_mode: std::sync::atomic::AtomicBool::new(false),
+            legacy_wake: Notify::new(),
             legacy_incoming: Mutex::new((
                 crate::flow_frame::FlowReassembler::new(),
                 VecDeque::new(),
@@ -2295,6 +2444,7 @@ mod tests {
             pool: pool.clone(),
             reassembler: crate::wire_protocol::ShardedReassembler::new(),
             legacy_mode: std::sync::atomic::AtomicBool::new(false),
+            legacy_wake: Notify::new(),
             legacy_incoming: Mutex::new((
                 crate::flow_frame::FlowReassembler::new(),
                 VecDeque::new(),

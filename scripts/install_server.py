@@ -22,7 +22,7 @@ import time
 import urllib.request
 from urllib.parse import quote
 
-VERSION = "2.5.0-compatible.3"
+VERSION = "2.5.0-compatible.4"
 CONFIG = "/etc/csqtt"
 BINARY = "/usr/local/bin/csqtt"
 UNIT = "/etc/systemd/system/csqtt.service"

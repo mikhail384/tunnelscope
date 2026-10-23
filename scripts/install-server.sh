@@ -2,7 +2,7 @@
 # CSQTT compatible server: standalone installer template, bundled by package_installer.py.
 set -Eeuo pipefail
 umask 077
-readonly CSQTT_INSTALLER_VERSION='2.5.0-compatible.3'
+readonly CSQTT_INSTALLER_VERSION='2.5.0-compatible.4'
 readonly CSQTT_PAYLOAD_SHA256='@PAYLOAD_SHA256@'
 readonly CSQTT_RUST_VERSION='1.97.1'
 WORK_DIR=''
