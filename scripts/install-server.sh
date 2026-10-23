@@ -2,7 +2,7 @@
 # CSQTT compatible server: standalone installer template, bundled by package_installer.py.
 set -Eeuo pipefail
 umask 077
-readonly CSQTT_INSTALLER_VERSION='2.5.0-compatible.1'
+readonly CSQTT_INSTALLER_VERSION='2.5.0-compatible.2'
 readonly CSQTT_PAYLOAD_SHA256='@PAYLOAD_SHA256@'
 readonly CSQTT_RUST_VERSION='1.97.1'
 WORK_DIR=''
@@ -106,6 +106,10 @@ build_server() {
     # Explicit host target overrides upstream's musl-only .cargo/config.toml.
     mkdir -p "$output"
     export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$output/target}"
+    # Bundled files have reproducible epoch mtimes. Cargo checks mtimes, so an
+    # existing target cache could otherwise silently reuse the previous server,
+    # even when Rust code or include_str! HTML/CSS changed in this installer.
+    find "$source" -type f -exec touch -- {} +
     echo 'Сборка совместимого сервера из встроенных исходников...'
     "$cargo_bin" +"$CSQTT_RUST_VERSION" build --manifest-path "$source/rust-server/Cargo.toml" \
         --release --locked --target "$host" --jobs "$jobs"

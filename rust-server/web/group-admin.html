@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0a0c">
+    <link rel="icon" type="image/svg+xml" href="/pwa-icon.svg">
+    <link rel="apple-touch-icon" href="/pwa-icon.svg">
+    <meta property="og:title" content="CSQTT">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="/pwa-icon.svg">
+    <title>CSQTT — Панель группы</title>
+    <script src="/qrcode.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --surface: #ffffff;
+            --surface-hover: #f1f5f9;
+            --primary: #0077ff;
+            --primary-hover: #0060cc;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --danger: #ef4444;
+            --success: #10b981;
+            --icon-bg: rgba(0, 119, 255, 0.1);
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #000000;
+            --surface: #0a0a0c;
+            --surface-hover: #161619;
+            --text-main: #f4f4f5;
+            --text-muted: #9ca3af;
+            --border: #1f1f23;
+            --danger: #ef4444;
+            --success: #10b981;
+            --icon-bg: rgba(0, 119, 255, 0.15);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 24px 16px;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        .main-card {
+            max-width: 760px;
+            width: 100%;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            align-self: flex-start;
+        }
+        .dlg-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .btn {
+            font-size: 13px;
+            padding: 0 16px;
+            height: 38px;
+            white-space: nowrap;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+            box-sizing: border-box;
+        }
+        .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+        .btn-ghost { background: var(--surface); color: var(--text-main); }
+        .btn-ghost:hover { background: var(--surface-hover); }
+        .btn-danger { color: #ef4444; border-color: rgba(239, 68, 68, 0.35); background: transparent; }
+        .btn-danger:hover { background: rgba(239, 68, 68, 0.1); }
+        .badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .badge.active { background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); }
+        .badge.inactive { background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); }
+        .badge.admin { background: var(--icon-bg); color: var(--primary); border: 1px solid rgba(0, 119, 255, 0.25); }
+        .group-dlg-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+        .group-act-btn {
+            height: 38px;
+            font-size: 13px;
+            border-radius: 10px;
+            padding: 0 16px;
+            box-sizing: border-box;
+            border: 1px solid var(--border);
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+        .group-search-wrapper {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            flex: 1;
+            min-width: 170px;
+        }
+        input[type="text"].group-search-input, .group-search-input {
+            width: 100%;
+            height: 38px;
+            background: var(--surface-hover);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0 32px 0 46px !important;
+            font-size: 13px;
+            color: var(--text-main);
+            outline: none;
+            box-sizing: border-box;
+            transition: all 0.2s;
+        }
+        .group-search-input:focus { border-color: var(--primary); }
+        .group-search-icon {
+            position: absolute;
+            left: 13px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+        .stats-summary {
+            font-size: 13px;
+            color: var(--text-muted);
+            padding: 10px 14px;
+            background: var(--surface-hover);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            font-weight: 500;
+        }
+        .client-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 14px;
+            margin-top: 4px;
+        }
+        .client-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 16px;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: all 0.2s ease;
+        }
+        .client-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+        }
+        .client-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+            min-height: 32px;
+        }
+        .client-card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--text-main);
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .client-card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .client-card-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .client-card-label { color: var(--text-muted); }
+        .client-card-value { color: var(--text-main); font-weight: 500; }
+        .client-pw {
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            color: var(--primary);
+            font-weight: 600;
+            background: var(--icon-bg);
+            padding: 2px 6px;
+            border-radius: 6px;
+        }
+        .client-sub-btn {
+            width: 100%;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-size: 12px;
+            padding: 7px 10px;
+            border: 1px solid var(--border) !important;
+            color: var(--text-main) !important;
+            background: transparent !important;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.15s ease;
+            cursor: pointer;
+            box-sizing: border-box;
+        }
+        .client-sub-btn:hover {
+            background: var(--surface-hover) !important;
+            border-color: var(--primary) !important;
+            color: var(--primary) !important;
+        }
+        [data-theme="dark"] .client-sub-btn {
+            border-color: rgba(255, 255, 255, 0.25) !important;
+            color: #ffffff !important;
+        }
+        [data-theme="dark"] .client-sub-btn:hover {
+            border-color: var(--primary) !important;
+            color: var(--primary) !important;
+            background: rgba(255, 255, 255, 0.05) !important;
+        }
+        .hub-bulk-panel {
+            background: var(--surface-hover);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        .hub-field-block {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 12px;
+        }
+        .hub-field-block:last-child {
+            margin-bottom: 0;
+        }
+        .hub-field-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .hub-field-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .hub-field-input {
+            flex: 1;
+            min-width: 0;
+            min-height: 38px;
+            height: 38px;
+            font-size: 13px;
+            padding: 0 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-main);
+            box-sizing: border-box;
+        }
+        .hub-field-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .hub-btn-apply {
+            height: 38px;
+            font-size: 13px;
+            font-weight: 600;
+            min-width: 175px;
+            padding: 0 14px;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+        .hub-btn-clear {
+            height: 38px;
+            font-size: 13px;
+            font-weight: 600;
+            min-width: 135px;
+            padding: 0 12px;
+            white-space: nowrap;
+            color: #ef4444 !important;
+            border: 1px solid rgba(239, 68, 68, 0.35) !important;
+            background: transparent;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            transition: all 0.15s ease;
+        }
+        .hub-btn-clear:hover {
+            background: rgba(239, 68, 68, 0.1) !important;
+            border-color: #ef4444 !important;
+            color: #dc2626 !important;
+        }
+        .hub-bulk-footer {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            border-top: 1px solid var(--border);
+            padding-top: 12px;
+            margin-top: 14px;
+        }
+        input.hub-search-input, .hub-search-input {
+            width: 100%;
+            height: 36px;
+            padding: 0 32px 0 44px !important;
+            border-radius: 8px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            font-size: 13px;
+            outline: none;
+            box-sizing: border-box;
+            transition: all 0.2s;
+        }
+        .hub-search-input::placeholder {
+            color: var(--text-muted);
+            opacity: 0.8;
+        }
+        .hub-search-input:focus {
+            border-color: var(--primary);
+            background: var(--surface-hover);
+            box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.15);
+        }
+        dialog {
+            background: var(--surface);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 20px;
+            margin: auto;
+            max-width: 500px;
+            width: min(500px, calc(100% - 24px));
+            outline: none;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+        }
+        dialog::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+        input[type="text"], input[type="number"], input:not([type]), input {
+            background: var(--surface-hover);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            height: 40px;
+            padding: 0 12px;
+            color: var(--text-main);
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s;
+            box-sizing: border-box;
+        }
+        input:focus { border-color: var(--primary); }
+        .dlg-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--surface);
+            color: var(--text-main);
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-size: 13px;
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            z-index: 10000;
+            display: none;
+            font-weight: 500;
+        }
+        #qrCodeContainer {
+            background: #ffffff;
+            padding: 14px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+            border: 1px solid var(--border);
+            width: 240px;
+            height: 240px;
+            max-width: 100%;
+            aspect-ratio: 1;
+            box-sizing: border-box;
+            overflow: hidden;
+            margin: 0 auto;
+        }
+        #qrCodeContainer svg {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            display: block !important;
+        }
+        .show-mobile { display: none; }
+        .hide-mobile { display: inline-block; }
+        @media (max-width: 600px) {
+            body { padding: 12px 8px; }
+            .main-card { padding: 16px; border-radius: 16px; gap: 12px; }
+            .group-dlg-actions { flex-direction: column; align-items: stretch; gap: 8px; }
+            .group-act-btn { width: 100%; justify-content: center; }
+            .group-search-wrapper { width: 100%; min-width: 0; }
+            .client-cards-grid { grid-template-columns: 1fr; }
+            .show-mobile { display: inline-block !important; }
+            .hide-mobile { display: none !important; }
+            .hub-field-row {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 8px;
+            }
+            .hub-field-row .hub-field-input {
+                width: 100% !important;
+                height: 38px !important;
+                min-height: 38px !important;
+                flex: none !important;
+                box-sizing: border-box !important;
+            }
+            .hub-field-actions {
+                width: 100%;
+                display: flex;
+                gap: 8px;
+            }
+            .hub-btn-apply,
+            .hub-btn-clear {
+                flex: 1;
+                width: auto;
+                min-width: 0;
+                font-size: 12px;
+                padding: 0 8px;
+                height: 38px;
+                box-sizing: border-box;
+            }
+            .hub-field-row.hub-workers-row {
+                flex-direction: row;
+                align-items: center;
+                gap: 8px;
+            }
+            .hub-field-row.hub-workers-row .hub-workers-input {
+                width: 75px !important;
+                flex: 0 0 75px !important;
+                height: 38px !important;
+                min-height: 38px !important;
+                text-align: center;
+                box-sizing: border-box !important;
+            }
+            .hub-field-row.hub-workers-row .hub-field-actions {
+                flex: 1;
+                min-width: 0;
+            }
+            .hub-bulk-footer {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+            .hub-search-container {
+                width: 100% !important;
+            }
+            .hub-search-input {
+                height: 38px;
+                font-size: 13px;
+            }
+        }
+    </style>
+    <style>__PANEL_STYLE__</style>
+    <script>__CLIENT_PROFILE_JS__</script>
+</head>
+<body class="panel-shell">
+<section class="connection-panel" style="max-width:1200px;width:100%;margin:20px auto"><div class="connection-lead"><div class="eyebrow">Подключение устройств</div><h2>CSQTT 2.1.9 / 2.5.0</h2><p>Выберите приложение для ссылок и QR-кодов этой группы.</p></div><div data-profile-controls></div></section>
+    <div class="main-card">
+        <div class="dlg-header">
+            <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
+                <h2 id="groupDlgTitle" style="font-size: 22px; font-weight: 700; margin: 0; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Группа</h2>
+                <span class="badge admin">Админ</span>
+            </div>
+            <button class="btn btn-ghost" onclick="toggleTheme()" title="Сменить тему" style="width: 36px; height: 36px; padding: 0; border: 1px solid var(--border); border-radius: 10px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+            </button>
+        </div>
+        <div id="statsSummary" class="stats-summary">Загрузка данных...</div>
+        <div class="group-dlg-actions">
+            <button class="btn btn-primary group-act-btn" onclick="openNewClientModal()">Создать пароль</button>
+            <button class="btn btn-ghost group-act-btn" onclick="openLinksAndTokensDlg()">Настройка ссылок</button>
+            <div class="group-search-wrapper">
+                <input type="text" id="groupSearchInput" class="group-search-input" placeholder="Поиск в группе..." oninput="handleSearch(this.value)" style="padding-left: 46px !important;">
+                <svg class="group-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </div>
+        </div>
+        <div id="groupClientsCards" class="client-cards-grid"></div>
+    </div>
+
+    <dialog id="newClientModal">
+        <div class="dlg-header" style="margin-bottom: 14px;">
+            <h3 style="font-size: 18px; margin: 0; font-weight: 700;">Создать пароль</h3>
+            <button class="btn btn-ghost" style="width: 32px; height: 32px; padding: 0; border: none; font-size: 16px;" onclick="document.getElementById('newClientModal').close()">✕</button>
+        </div>
+        <div class="input-group">
+            <label>Имя клиента</label>
+            <input type="text" id="newClientName" placeholder="Например: Клиент123">
+        </div>
+        <div class="input-group">
+            <label>Срок действия (0 = Бессрочно, 1-365 Ручной лимит)</label>
+            <input type="number" id="newClientDays" value="30" min="0" max="365">
+        </div>
+        <div class="dlg-actions">
+            <button class="btn btn-ghost" onclick="document.getElementById('newClientModal').close()">Отмена</button>
+            <button class="btn btn-primary" onclick="submitNewClient()">Создать</button>
+        </div>
+    </dialog>
+
+    <dialog id="editClientModal">
+        <div class="dlg-header" style="margin-bottom: 14px;">
+            <h3 style="font-size: 18px; margin: 0; font-weight: 700;">Управление клиентом</h3>
+            <button class="btn btn-ghost" style="width: 32px; height: 32px; padding: 0; border: none; font-size: 16px;" onclick="document.getElementById('editClientModal').close()">✕</button>
+        </div>
+        <div class="input-group">
+            <label>Имя клиента</label>
+            <input type="text" id="editName">
+        </div>
+        <div class="input-group">
+            <label>Пароль (ключ)</label>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" id="editPass" readonly style="flex: 1; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--text-muted);">
+                <button class="btn btn-ghost" onclick="copyPasswordText()" style="width: 40px; height: 40px; padding: 0;" title="Копировать"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+                <button class="btn btn-ghost" onclick="openQrModalForActiveClient()" style="width: 40px; height: 40px; padding: 0;" title="QR-код"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><path d="M7 7h.01M17 7h.01M7 17h.01M17 17h.01"></path></svg></button>
+            </div>
+        </div>
+        <div class="input-group">
+            <label>Срок действия (0 = Бессрочно, 1-365 Ручной лимит)</label>
+            <input type="number" id="editDays" min="0" max="365">
+        </div>
+        <div style="border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 12px 0; font-size: 13px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-hover);">
+            <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">IP-адрес:</span><span id="editIp">—</span></div>
+            <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Трафик:</span><span id="editTraffic" style="font-family: ui-monospace, SFMono-Regular, Consolas, monospace;">↑ 0 B / ↓ 0 B</span></div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
+            <button class="btn btn-ghost" onclick="executeResetTraffic()" style="flex: 1; height: 38px;">Сбросить трафик</button>
+            <button class="btn btn-ghost" onclick="executeExtend30()" style="flex: 1; height: 38px;">Продлить +30 дн.</button>
+            <button class="btn btn-ghost" id="editToggleBtn" onclick="executeToggleClient()" style="flex: 1; height: 38px;">Отключить</button>
+        </div>
+        <div class="dlg-actions" style="justify-content: space-between;">
+            <button class="btn btn-danger" onclick="executeDeleteClient()" style="height: 38px;">Удалить</button>
+            <button class="btn btn-primary" onclick="saveClientChanges()" style="height: 38px;">Сохранить</button>
+        </div>
+    </dialog>
+
+    <dialog id="qrDlg" style="max-width: 440px; width: min(440px, calc(100% - 24px)); text-align: center;">
+        <div class="dlg-header" style="justify-content: space-between;">
+            <h3 id="qrDlgTitle" style="font-size: 18px; margin: 0; font-weight: 700;">QR-код клиента</h3>
+            <button class="btn btn-ghost" style="width: 32px; height: 32px; padding: 0; border: none; font-size: 16px;" onclick="document.getElementById('qrDlg').close()">✕</button>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 16px 0;">
+            <div data-profile-controls></div><p id="profileWarning" class="profile-notice" hidden>Для 2.1.9, focsq и VK TURN Proxy нужны ссылки VK-звонков. Добавьте VK-хеши в настройках этого доступа.</p><div id="qrCodeContainer"></div>
+            <div style="width: 100%; display: flex; gap: 8px; align-items: center;">
+                <input type="text" id="qrDlgLink" readonly style="flex: 1; height: 40px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--text-muted);" onclick="this.select()">
+                <button class="btn btn-ghost" onclick="copyQrLink()" style="height: 40px; width: 44px; padding: 0;" title="Копировать"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            </div>
+        </div>
+        <a id="qrDlgConnectBtn" class="connect-button">Открыть приложение</a>
+        <button class="btn btn-ghost" style="width: 100%; min-height: 44px; margin-top: 10px;" onclick="document.getElementById('qrDlg').close()">Закрыть</button>
+    </dialog>
+
+    <dialog id="linksAndTokensDlg" style="max-width: 820px; width: min(820px, calc(100% - 24px)); max-height: 88vh; overflow-y: auto;">
+        <div class="dlg-header">
+            <h2 style="font-size: 20px; font-weight: 700; margin: 0;">Настройка ссылок</h2>
+            <button class="btn btn-ghost" style="width: 32px; height: 32px; padding: 0; border: none; font-size: 16px;" onclick="document.getElementById('linksAndTokensDlg').close()">✕</button>
+        </div>
+
+        <!-- Top bulk settings panel -->
+        <div class="hub-bulk-panel">
+            <div class="hub-field-block">
+                <label class="hub-field-label">VK токен группы</label>
+                <div class="hub-field-row">
+                    <input id="hubVkTokenInput" class="hub-field-input" placeholder="Введите VK токен..." onchange="autoSaveHubVkToken()" onblur="autoSaveHubVkToken()">
+                    <div class="hub-field-actions">
+                        <button class="btn btn-primary hub-btn-apply" onclick="applyHubVkTokenDirect()"><span class="hide-mobile">Применить VK токен</span><span class="show-mobile">Применить токен</span></button>
+                        <button class="btn btn-ghost hub-btn-clear" onclick="promptBatchAction('clear-token')"><span class="hide-mobile">Очистить токен</span><span class="show-mobile">Очистить</span></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hub-field-block">
+                <label class="hub-field-label">VK хеши группы (через запятую)</label>
+                <div class="hub-field-row">
+                    <input id="hubVkHashesInput" class="hub-field-input" placeholder="hash1,hash2,...,hash6" onchange="autoSaveHubVkHashes()" onblur="autoSaveHubVkHashes()">
+                    <div class="hub-field-actions">
+                        <button class="btn btn-primary hub-btn-apply" onclick="applyHubVkHashesDirect()"><span class="hide-mobile">Применить VK хеши</span><span class="show-mobile">Применить хеши</span></button>
+                        <button class="btn btn-ghost hub-btn-clear" onclick="promptBatchAction('clear-hashes')"><span class="hide-mobile">Очистить хеши</span><span class="show-mobile">Очистить</span></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hub-field-block">
+                <label class="hub-field-label">Установить число потоков (0 = Клиентские настройки, 3-99 Ручной лимит)</label>
+                <div class="hub-field-row hub-workers-row">
+                    <input type="number" id="hubWorkersInput" class="hub-field-input hub-workers-input" min="0" max="99" value="0" placeholder="0 (Клиентские)">
+                    <div class="hub-field-actions">
+                        <button class="btn btn-primary hub-btn-apply" onclick="applyHubWorkersDirect()"><span class="hide-mobile">Установить число потоков</span><span class="show-mobile">Установить</span></button>
+                        <button class="btn btn-ghost hub-btn-clear" onclick="promptBatchAction('clear-workers')"><span class="hide-mobile">Сбросить число потоков</span><span class="show-mobile">Сбросить</span></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hub-bulk-footer">
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                    <input type="checkbox" id="hubSelectAll" onchange="toggleSelectAllHubClients(this.checked)" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary);">
+                    <label for="hubSelectAll" style="cursor: pointer; font-weight: 600;">Выбрать всех</label>
+                    <span id="hubSelectedCount" style="color: var(--text-muted); font-size: 12px;">(0 выбрано)</span>
+                </div>
+                <div class="hub-search-container" style="position: relative; width: 280px; max-width: 100%;">
+                    <input type="text" id="hubSearchInput" class="hub-search-input" placeholder="Клиент (группа)..." oninput="handleHubSearch(this.value)" style="padding-left: 44px !important; padding-right: 32px !important;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <button id="hubSearchClearBtn" onclick="clearHubSearch()" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; align-items: center; justify-content: center;" title="Очистить">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Clients links list -->
+        <div id="hubClientsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+    </dialog>
+
+    <dialog id="batchConfirmDlg" style="max-width: 440px; width: min(440px, calc(100% - 24px));">
+        <h3 id="batchConfirmTitle" style="font-size: 18px; margin: 0 0 12px 0; font-weight: 700;">Подтверждение</h3>
+        <p id="batchConfirmMessage" style="font-size: 14px; color: var(--text-muted); line-height: 1.5; margin-bottom: 24px;"></p>
+        <div class="dlg-actions">
+            <button class="btn btn-ghost" onclick="document.getElementById('batchConfirmDlg').close()">Отмена</button>
+            <button class="btn btn-primary" id="batchConfirmSubmitBtn">Применить</button>
+        </div>
+    </dialog>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        function toggleTheme() {
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            localStorage.setItem('csqtt-theme', isDark ? 'light' : 'dark');
+        }
+        if (localStorage.getItem('csqtt-theme') === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+
+        const adminUuid = window.location.pathname.split('/').filter(Boolean)[0];
+        let currentData = null;
+        let activeClient = null;
+
+        function esc(s) {
+            return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+        }
+
+        function size(b) {
+            if (!b || b <= 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(b) / Math.log(1024));
+            return (b / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+        }
+
+        function calcMatchScore(text, query) {
+            if (!text || !query) return 0;
+            const t = String(text).trim().toLowerCase();
+            const q = String(query).trim().toLowerCase();
+            if (!t || !q) return 0;
+            if (t === q) return 1000;
+            if (t.startsWith(q)) return 500 + Math.max(0, 100 - t.length);
+            const words = t.split(/[\s,._\-#№]+|(?<=[^\d\s])(?=\d)|(?<=\d)(?=[^\d\s])/);
+            for (const w of words) {
+                if (w === q) return 450 + Math.max(0, 100 - w.length);
+                if (w.startsWith(q)) return 400 + Math.max(0, 100 - w.length);
+            }
+            const idx = t.indexOf(q);
+            if (idx !== -1) return 200 + Math.max(0, 100 - idx);
+            return 0;
+        }
+
+        function generateUniqueClientName(existingNames) {
+            const set = new Set((existingNames || []).map(n => String(n || '').trim().toLowerCase()));
+            for (let i = 0; i < 1000; i++) {
+                const candidate = 'Клиент' + Math.floor(100 + Math.random() * 900);
+                if (!set.has(candidate.toLowerCase())) {
+                    return candidate;
+                }
+            }
+            return 'Клиент' + Math.floor(100 + Math.random() * 900);
+        }
+
+        function showToast(msg, isError) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.style.borderColor = isError ? 'var(--danger)' : 'var(--border)';
+            t.style.display = 'block';
+            setTimeout(() => { t.style.display = 'none'; }, 2500);
+        }
+
+        async function copyToClipboard(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                } catch (e) {}
+            }
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'absolute';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        async function loadData() {
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/data');
+                if (!r.ok) {
+                    document.getElementById('statsSummary').textContent = 'Ошибка загрузки данных группы';
+                    return;
+                }
+                currentData = await r.json();
+                renderView();
+            } catch (e) {
+                document.getElementById('statsSummary').textContent = 'Ошибка сети';
+            }
+        }
+
+        function renderView() {
+            if (!currentData) return;
+            document.getElementById('groupDlgTitle').textContent = currentData.group.name || 'Группа';
+            const clients = currentData.clients || [];
+            let sumUp = 0, sumDown = 0, sumSessions = 0;
+            for (const c of clients) {
+                sumUp += (c.up || 0);
+                sumDown += (c.down || 0);
+                sumSessions += (c.active_sessions || 0);
+            }
+            document.getElementById('statsSummary').textContent = `Участники: ${clients.length} · Трафик: ↑ ${size(sumUp)} / ↓ ${size(sumDown)} · Потоки: ${sumSessions}`;
+            renderCards(clients);
+        }
+
+        function renderCards(clients) {
+            const query = (document.getElementById('groupSearchInput')?.value || '').trim().toLowerCase();
+            const filtered = query ? clients.filter(c => (c.name || '').toLowerCase().includes(query) || c.password.toLowerCase().includes(query)) : clients;
+            const container = document.getElementById('groupClientsCards');
+            if (filtered.length === 0) {
+                container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 32px; color: var(--text-muted); font-size: 14px;">' + (query ? 'Ничего не найдено' : 'В группе пока нет клиентов. Нажмите «Создать пароль».') + '</div>';
+                return;
+            }
+            container.innerHTML = filtered.map(c => {
+                const expiryStr = c.expires ? new Date(c.expires * 1000).toLocaleDateString() : '∞ Бессрочно';
+                return `
+                <div class="client-card" onclick="openEditModal('${esc(c.password)}')">
+                    <div class="client-card-header">
+                        <div class="client-card-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary); flex-shrink: 0;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                            <span>${esc(c.name || 'Клиент')}</span>
+                        </div>
+                        <span class="badge ${c.active ? 'active' : 'inactive'}">${c.active ? 'Участник' : 'Неактивно'}</span>
+                    </div>
+                    <div class="client-card-body">
+                        <div class="client-card-row">
+                            <span class="client-card-label">IP:</span>
+                            <span class="client-card-value">${esc(c.ip || '—')}</span>
+                        </div>
+                        <div class="client-card-row">
+                            <span class="client-card-label">Срок действия:</span>
+                            <span class="client-card-value">${expiryStr}</span>
+                        </div>
+                        <div class="client-card-row">
+                            <span class="client-card-label">Трафик:</span>
+                            <span class="client-card-value" style="font-family: ui-monospace, SFMono-Regular, Consolas, monospace;">↑ ${size(c.up)} / ↓ ${size(c.down)}</span>
+                        </div>
+                        <div class="client-card-row">
+                            <span class="client-card-label">Потоки:</span>
+                            <span class="client-card-value">${c.active_sessions || 0}</span>
+                        </div>
+                        ${c.sub_uuid ? `
+                        <button class="btn btn-ghost client-sub-btn" onclick="event.stopPropagation(); copyClientSubLink('${c.sub_uuid}', this)" title="Скопировать ссылку подписки">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            <span>Скопировать ссылку подписки</span>
+                        </button>
+                        ` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function handleSearch(val) {
+            if (currentData) renderCards(currentData.clients || []);
+        }
+
+        function openNewClientModal() {
+            const existing = (currentData?.clients || []).map(c => c.name);
+            document.getElementById('newClientName').value = generateUniqueClientName(existing);
+            document.getElementById('newClientDays').value = '30';
+            document.getElementById('newClientModal').showModal();
+        }
+
+        async function submitNewClient() {
+            let name = document.getElementById('newClientName').value.trim();
+            if (!name) {
+                const existing = (currentData?.clients || []).map(c => c.name);
+                name = generateUniqueClientName(existing);
+            }
+            const days = parseInt(document.getElementById('newClientDays').value, 10) || 0;
+            const workers = 0;
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/clients', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ name, days, workers })
+                });
+                if (r.ok) {
+                    showToast('Пароль создан');
+                    document.getElementById('newClientModal').close();
+                    await loadData();
+                } else {
+                    const msg = await r.text().catch(() => '');
+                    showToast(msg || 'Ошибка создания пароля', true);
+                }
+            } catch (e) {
+                showToast('Ошибка сети', true);
+            }
+        }
+
+        function openEditModal(password) {
+            const c = (currentData?.clients || []).find(x => x.password === password);
+            if (!c) return;
+            activeClient = c;
+            document.getElementById('editName').value = c.name || '';
+            document.getElementById('editPass').value = c.password;
+            let remainingDays = 0;
+            if (c.expires) {
+                remainingDays = Math.max(0, Math.ceil((c.expires * 1000 - Date.now()) / 86400000));
+            }
+            document.getElementById('editDays').value = c.expires ? remainingDays : 0;
+            document.getElementById('editIp').textContent = c.ip || '—';
+            document.getElementById('editTraffic').textContent = `↑ ${size(c.up)} / ↓ ${size(c.down)}`;
+            const toggleBtn = document.getElementById('editToggleBtn');
+            toggleBtn.textContent = c.is_deactivated ? 'Включить' : 'Отключить';
+            toggleBtn.style.color = c.is_deactivated ? '#10b981' : '#ef4444';
+            document.getElementById('editClientModal').showModal();
+        }
+
+        async function copyPasswordText() {
+            if (activeClient && await copyToClipboard(activeClient.password)) {
+                showToast('Пароль скопирован');
+            }
+        }
+
+        async function executeResetTraffic() {
+            if (!activeClient) return;
+            if (!confirm('Сбросить трафик для этого клиента?')) return;
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/clients/' + encodeURIComponent(activeClient.password) + '/reset-traffic', { method: 'POST' });
+                if (r.ok) {
+                    showToast('Трафик сброшен');
+                    document.getElementById('editClientModal').close();
+                    await loadData();
+                }
+            } catch (e) { showToast('Ошибка сети', true); }
+        }
+
+        async function executeExtend30() {
+            if (!activeClient) return;
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/clients/' + encodeURIComponent(activeClient.password) + '/extend', { method: 'POST' });
+                if (r.ok) {
+                    showToast('Срок продлён на 30 дней');
+                    document.getElementById('editClientModal').close();
+                    await loadData();
+                }
+            } catch (e) { showToast('Ошибка сети', true); }
+        }
+
+        async function executeToggleClient() {
+            if (!activeClient) return;
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/clients/' + encodeURIComponent(activeClient.password) + '/toggle', { method: 'POST' });
+                if (r.ok) {
+                    showToast('Статус клиента изменён');
+                    document.getElementById('editClientModal').close();
+                    await loadData();
+                }
+            } catch (e) { showToast('Ошибка сети', true); }
+        }
+
+        async function executeUnbind() {
+            if (!activeClient) return;
+            if (!confirm('Отвязать устройство?')) return;
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/clients/' + encodeURIComponent(activeClient.password) + '/unbind', { method: 'POST' });
+                if (r.ok) {
+                    showToast('Устройство отвязано');
+                    document.getElementById('editClientModal').close();
+                    await loadData();
+                }
+            } catch (e) { showToast('Ошибка сети', true); }
+        }
+
+        async function executeDeleteClient() {
+            if (!activeClient) return;
+            if (!confirm('Удалить клиента? Это действие необратимо.')) return;
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/clients/' + encodeURIComponent(activeClient.password), { method: 'DELETE' });
+                if (r.ok) {
+                    showToast('Клиент удалён');
+                    document.getElementById('editClientModal').close();
+                    await loadData();
+                }
+            } catch (e) { showToast('Ошибка сети', true); }
+        }
+
+        async function saveClientChanges() {
+            if (!activeClient) return;
+            let name = document.getElementById('editName').value.trim();
+            if (!name) {
+                const existing = (currentData?.clients || []).filter(c => c.password !== activeClient.password).map(c => c.name);
+                name = generateUniqueClientName(existing);
+            }
+            const days = parseInt(document.getElementById('editDays').value, 10);
+            const workers = activeClient.workers || 0;
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/clients/' + encodeURIComponent(activeClient.password), {
+                    method: 'PUT',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ name, days, workers })
+                });
+                if (r.ok) {
+                    showToast('Изменения сохранены');
+                    document.getElementById('editClientModal').close();
+                    await loadData();
+                } else {
+                    const msg = await r.text().catch(() => '');
+                    showToast(msg || 'Ошибка сохранения', true);
+                }
+            } catch (e) { showToast('Ошибка сети', true); }
+        }
+
+        function generateQrSvg(text) {
+            try {
+                const qr = qrcode(0, 'L');
+                qr.addData(text);
+                qr.make();
+                return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+            } catch (e) {
+                return '<div style="color: #ef4444; padding: 16px;">Ошибка генерации QR</div>';
+            }
+        }
+
+        function openQrModalForActiveClient() {
+            if (!activeClient) return;
+            const link = CSQTTProfile.linkFor(activeClient);
+            if (!link) { showToast('Ссылка клиента недоступна', true); return; }
+            document.getElementById('qrDlgTitle').textContent = 'QR-код: ' + (activeClient.name || 'Клиент');
+            document.getElementById('qrDlgLink').value = link;
+            const container = document.getElementById('qrCodeContainer');
+            container.innerHTML = generateQrSvg(link);
+            CSQTTProfile.showClient(activeClient);
+            document.getElementById('qrDlg').showModal();
+        }
+
+        async function copyClientSubLink(subUuid, btn) {
+            if (!subUuid) {
+                showToast("У клиента нет ссылки подписки", true);
+                return;
+            }
+            const url = CSQTTProfile.subscriptionUrl(subUuid);
+            if (await copyToClipboard(url)) {
+                if (btn) {
+                    btn.style.color = '#10b981';
+                    setTimeout(() => { btn.style.color = ''; }, 1500);
+                }
+                showToast("Ссылка подписки скопирована");
+            } else {
+                showToast("Не удалось скопировать", true);
+            }
+        }
+
+        async function copyQrLink() {
+            const link = document.getElementById('qrDlgLink')?.value || '';
+            if (await copyToClipboard(link)) {
+                showToast('Ссылка скопирована');
+            }
+        }
+
+        let hubSelectedPasswords = new Set();
+        let currentHubFilterQuery = '';
+        let groupVkToken = '';
+        let groupVkHashes = '';
+
+        function openLinksAndTokensDlg() {
+            hubSelectedPasswords.clear();
+            currentHubFilterQuery = '';
+            const searchInput = document.getElementById('hubSearchInput');
+            if (searchInput) searchInput.value = '';
+            const clearBtn = document.getElementById('hubSearchClearBtn');
+            if (clearBtn) clearBtn.style.display = 'none';
+
+            groupVkToken = currentData?.group?.vk_token || '';
+            groupVkHashes = currentData?.group?.vk_hashes || '';
+
+            const tokenInput = document.getElementById('hubVkTokenInput');
+            if (tokenInput) tokenInput.value = groupVkToken;
+            const hashesInput = document.getElementById('hubVkHashesInput');
+            if (hashesInput) hashesInput.value = groupVkHashes;
+            const workersInput = document.getElementById('hubWorkersInput');
+            if (workersInput) workersInput.value = currentData?.group?.workers || '0';
+            const selectAll = document.getElementById('hubSelectAll');
+            if (selectAll) selectAll.checked = false;
+
+            renderHubClientsList();
+            updateHubSelectedCount();
+            document.getElementById('linksAndTokensDlg').showModal();
+        }
+
+        async function autoSaveHubVkToken() {
+            const input = document.getElementById('hubVkTokenInput');
+            const token = input ? input.value.trim() : '';
+            if (token && (/\s/.test(token) || token.length > 4096)) return false;
+            if (token === groupVkToken) return true;
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/settings', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ vk_token: token })
+                });
+                if (r.ok) {
+                    groupVkToken = token;
+                    if (currentData && currentData.group) {
+                        currentData.group.vk_token = token;
+                    }
+                    await loadData();
+                    renderHubClientsList();
+                    return true;
+                }
+            } catch (e) {}
+            return false;
+        }
+
+        async function autoSaveHubVkHashes() {
+            const input = document.getElementById('hubVkHashesInput');
+            const raw = input ? input.value.trim() : '';
+            if (raw === groupVkHashes) return true;
+            try {
+                const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/settings', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ vk_hashes: raw })
+                });
+                if (r.ok) {
+                    groupVkHashes = raw;
+                    if (currentData && currentData.group) {
+                        currentData.group.vk_hashes = raw;
+                    }
+                    await loadData();
+                    renderHubClientsList();
+                    return true;
+                }
+            } catch (e) {}
+            return false;
+        }
+
+        async function applyHubVkTokenDirect() {
+            const input = document.getElementById('hubVkTokenInput');
+            const token = input ? input.value.trim() : '';
+            if (!token) {
+                showToast("Введите VK токен", true);
+                return;
+            }
+            if (/\s/.test(token) || token.length > 4096) {
+                showToast("VK токен не должен содержать пробелы и должен быть короче 4097 символов", true);
+                return;
+            }
+            await autoSaveHubVkToken();
+            promptBatchAction('token');
+        }
+
+        async function applyHubVkHashesDirect() {
+            const input = document.getElementById('hubVkHashesInput');
+            const raw = input ? input.value.trim() : '';
+            const hashes = raw.split(',').map(s => s.trim()).filter(Boolean);
+            if (!hashes.length || hashes.length > 6 || hashes.some(h => h.length < 16 || /\s/.test(h))) {
+                showToast("Укажите от 1 до 6 корректных VK-хешей через запятую (каждый от 16 символов без пробелов)", true);
+                return;
+            }
+            await autoSaveHubVkHashes();
+            promptBatchAction('hashes');
+        }
+
+        async function applyHubWorkersDirect() {
+            const input = document.getElementById('hubWorkersInput');
+            const w = parseInt(input ? input.value : '0', 10);
+            if (isNaN(w) || w < 0 || (w > 0 && w < 3) || w > 99) {
+                showToast("Число потоков должно быть 0 (клиентские) или от 3 до 99", true);
+                return;
+            }
+            promptBatchAction('workers');
+        }
+
+        function handleHubSearch(val) {
+            currentHubFilterQuery = val.trim();
+            const clearBtn = document.getElementById('hubSearchClearBtn');
+            if (clearBtn) clearBtn.style.display = currentHubFilterQuery ? 'flex' : 'none';
+            renderHubClientsList();
+        }
+
+        function clearHubSearch() {
+            const searchInput = document.getElementById('hubSearchInput');
+            if (searchInput) searchInput.value = '';
+            const clearBtn = document.getElementById('hubSearchClearBtn');
+            if (clearBtn) clearBtn.style.display = 'none';
+            currentHubFilterQuery = '';
+            renderHubClientsList();
+        }
+
+        function renderHubClientsList(preservedChecked = null) {
+            const container = document.getElementById('hubClientsList');
+            if (!container) return;
+            if (preservedChecked !== null) {
+                hubSelectedPasswords.clear();
+                preservedChecked.forEach(p => hubSelectedPasswords.add(p));
+            }
+            const allClients = currentData?.clients || [];
+            if (!allClients.length) {
+                container.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 24px;">Нет созданных клиентов</div>';
+                updateHubSelectedCount();
+                return;
+            }
+
+            const groupName = currentData?.group?.name || 'Группа';
+            let displayClients = [];
+            const q = currentHubFilterQuery;
+
+            if (!q) {
+                displayClients = allClients.map(c => ({
+                    client: c,
+                    groupName: groupName,
+                    score: 0
+                }));
+            } else {
+                const bracketMatch = q.match(/^(.*?)\((.*?)\)(.*)$/);
+                let mode = 'name_only';
+                let namePart = '';
+                let groupPart = '';
+
+                if (bracketMatch) {
+                    const outside = (bracketMatch[1] + ' ' + bracketMatch[3]).trim();
+                    const inside = bracketMatch[2].trim();
+                    if (!outside) {
+                        mode = 'group_only';
+                        groupPart = inside;
+                    } else {
+                        mode = 'name_and_group';
+                        namePart = outside;
+                        groupPart = inside;
+                    }
+                } else {
+                    const openIdx = q.lastIndexOf('(');
+                    if (openIdx !== -1) {
+                        const outside = q.slice(0, openIdx).trim();
+                        const inside = q.slice(openIdx + 1).trim();
+                        if (!outside) {
+                            mode = 'group_only';
+                            groupPart = inside;
+                        } else {
+                            mode = 'name_and_group';
+                            namePart = outside;
+                            groupPart = inside;
+                        }
+                    } else {
+                        mode = 'name_only';
+                        namePart = q;
+                    }
+                }
+
+                const scored = [];
+                for (const c of allClients) {
+                    const cName = c.name || 'Клиент';
+                    let score = 0;
+
+                    if (mode === 'name_only') {
+                        score = calcMatchScore(cName, namePart);
+                    } else if (mode === 'group_only') {
+                        if (groupName) {
+                            if (!groupPart) {
+                                score = 100;
+                            } else {
+                                score = calcMatchScore(groupName, groupPart);
+                            }
+                        }
+                    } else if (mode === 'name_and_group') {
+                        const nScore = namePart ? calcMatchScore(cName, namePart) : 0;
+                        const gScore = (groupPart && groupName) ? calcMatchScore(groupName, groupPart) : 0;
+                        if (nScore > 0 && gScore > 0) {
+                            score = 2000 + nScore + gScore;
+                        } else if (nScore > 0) {
+                            score = nScore;
+                        } else if (gScore > 0) {
+                            score = gScore;
+                        }
+                    }
+
+                    if (score > 0) {
+                        scored.push({ client: c, groupName: groupName, score });
+                    }
+                }
+
+                scored.sort((a, b) => b.score - a.score);
+                displayClients = scored;
+            }
+
+            if (!displayClients.length) {
+                container.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 24px;">По запросу «<b>${esc(q)}</b>» ничего не найдено</div>`;
+                updateHubSelectedCount();
+                return;
+            }
+
+            container.innerHTML = displayClients.map(item => {
+                const c = item.client;
+                const link = CSQTTProfile.linkFor(c);
+                let badge = '';
+                const hashes = String(c.vk_hashes || '').trim();
+                if (c.vk_token) {
+                    badge = '<span class="badge active" style="font-size: 11px;">VK Токен</span>';
+                } else if (hashes) {
+                    badge = '<span class="badge active" style="font-size: 11px;">VK Хеши</span>';
+                } else {
+                    badge = '<span class="badge inactive" style="font-size: 11px;">Прямой</span>';
+                }
+                if (c.workers && c.workers >= 3) {
+                    badge += ` <span class="badge active" style="font-size: 11px;">Потоки: ${c.workers}</span>`;
+                }
+                const isChecked = hubSelectedPasswords.has(c.password);
+                const displayName = `${c.name || 'Клиент'} (${groupName})`;
+
+                return `
+                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="checkbox" class="hub-client-cb" value="${esc(c.password)}" ${isChecked ? 'checked' : ''} onchange="handleHubClientCbChange(this)" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary);">
+                            <span style="font-weight: 600; font-size: 14px; color: var(--text-main);">${esc(displayName)}</span>
+                            ${badge}
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input readonly value="${esc(link)}" style="flex: 1; height: 40px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; padding: 0 10px; background: var(--surface-hover); color: var(--text-muted); border-radius: 8px;" onclick="this.select()">
+                        <button class="btn btn-ghost" style="height: 40px; width: 44px; padding: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid var(--border); border-radius: 8px;" onclick="copyHubClientLink('${esc(c.password)}', this)" title="Копировать ссылку">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <button class="btn btn-ghost" style="height: 40px; width: 44px; padding: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid var(--border); border-radius: 8px;" onclick="openQrModalForClient('${esc(c.password)}')" title="QR-код">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><path d="M7 7h.01M17 7h.01M7 17h.01M17 17h.01"></path></svg>
+                        </button>
+                    </div>
+                </div>
+                `;
+            }).join('');
+
+            updateHubSelectedCount();
+        }
+
+        function handleHubClientCbChange(cb) {
+            if (cb.checked) {
+                hubSelectedPasswords.add(cb.value);
+            } else {
+                hubSelectedPasswords.delete(cb.value);
+            }
+            updateHubSelectedCount();
+        }
+
+        function toggleSelectAllHubClients(checked) {
+            const cbs = document.querySelectorAll('.hub-client-cb');
+            cbs.forEach(cb => {
+                cb.checked = checked;
+                if (checked) {
+                    hubSelectedPasswords.add(cb.value);
+                } else {
+                    hubSelectedPasswords.delete(cb.value);
+                }
+            });
+            updateHubSelectedCount();
+        }
+
+        function updateHubSelectedCount() {
+            const visibleCbs = document.querySelectorAll('.hub-client-cb');
+            const checkedCount = hubSelectedPasswords.size;
+            const countEl = document.getElementById('hubSelectedCount');
+            if (countEl) countEl.textContent = `(${checkedCount} выбрано)`;
+            const selectAll = document.getElementById('hubSelectAll');
+            if (selectAll) {
+                selectAll.checked = (visibleCbs.length > 0 && Array.from(visibleCbs).every(cb => cb.checked));
+            }
+        }
+
+        async function copyHubClientLink(password, btn = null) {
+            const client = (currentData?.clients || []).find(c => c.password === password);
+            if (!client) return;
+            const link = CSQTTProfile.linkFor(client);
+            if (!link) { showToast('Ссылка клиента недоступна', true); return; }
+            if (await copyToClipboard(link)) {
+                showToast("Ссылка скопирована");
+                if (btn) {
+                    const orig = btn.innerHTML;
+                    btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                    setTimeout(() => { btn.innerHTML = orig; }, 1500);
+                }
+            } else {
+                showToast("Не удалось скопировать", true);
+            }
+        }
+
+        function openQrModalForClient(password) {
+            const client = (currentData?.clients || []).find(c => c.password === password);
+            if (!client) return;
+            const link = CSQTTProfile.linkFor(client);
+            if (!link) { showToast('Ссылка клиента недоступна', true); return; }
+            document.getElementById('qrDlgTitle').textContent = 'QR-код: ' + (client.name || 'Клиент');
+            document.getElementById('qrDlgLink').value = link;
+            const container = document.getElementById('qrCodeContainer');
+            container.innerHTML = generateQrSvg(link);
+            CSQTTProfile.showClient(client);
+            document.getElementById('qrDlg').showModal();
+        }
+
+        let currentBatchAction = null;
+
+        function promptBatchAction(action) {
+            if (!hubSelectedPasswords.size) {
+                const checkedCbs = Array.from(document.querySelectorAll('.hub-client-cb:checked'));
+                checkedCbs.forEach(cb => hubSelectedPasswords.add(cb.value));
+            }
+            if (!hubSelectedPasswords.size) {
+                showToast("Выберите хотя бы одного клиента", true);
+                return;
+            }
+            const count = hubSelectedPasswords.size;
+            const titleEl = document.getElementById('batchConfirmTitle');
+            const msgEl = document.getElementById('batchConfirmMessage');
+            const submitBtn = document.getElementById('batchConfirmSubmitBtn');
+
+            if (action === 'token') {
+                const tokenVal = (document.getElementById('hubVkTokenInput')?.value || groupVkToken || '').trim();
+                if (!tokenVal) {
+                    showToast("Укажите VK токен", true);
+                    return;
+                }
+                titleEl.textContent = "Применить VK токен";
+                msgEl.textContent = `Включить общий VK токен для выбранных клиентов (${count} шт.)? Индивидуальные VK хеши будут очищены.`;
+                submitBtn.textContent = "Применить токен";
+                submitBtn.className = "btn btn-primary";
+            } else if (action === 'clear-token') {
+                titleEl.textContent = "Отключить VK токен";
+                msgEl.textContent = `Отключить VK токен для выбранных клиентов (${count} шт.)?`;
+                submitBtn.textContent = "Отключить токен";
+                submitBtn.className = "btn btn-danger";
+            } else if (action === 'hashes') {
+                const raw = (document.getElementById('hubVkHashesInput')?.value || groupVkHashes || '').trim();
+                const hashes = raw.split(',').map(s => s.trim()).filter(Boolean);
+                if (!hashes.length || hashes.length > 6 || hashes.some(h => h.length < 16 || /\s/.test(h))) {
+                    showToast("Укажите от 1 до 6 корректных VK-хешей через запятую (каждый от 16 символов без пробелов)", true);
+                    return;
+                }
+                titleEl.textContent = "Применить VK хеши";
+                msgEl.textContent = `Установить указанные VK хеши для выбранных клиентов (${count} шт.)? Флаг VK токена будет отключен.`;
+                submitBtn.textContent = "Применить хеши";
+                submitBtn.className = "btn btn-primary";
+            } else if (action === 'clear-hashes') {
+                titleEl.textContent = "Очистить VK хеши";
+                msgEl.textContent = `Очистить VK хеши для выбранных клиентов (${count} шт.)?`;
+                submitBtn.textContent = "Очистить хеши";
+                submitBtn.className = "btn btn-danger";
+            } else if (action === 'workers') {
+                const w = parseInt(document.getElementById('hubWorkersInput')?.value || '0', 10);
+                if (isNaN(w) || w < 0 || (w > 0 && w < 3) || w > 100) {
+                    showToast("Число потоков должно быть 0 или от 3 до 100", true);
+                    return;
+                }
+                titleEl.textContent = "Установить число потоков";
+                msgEl.textContent = `Установить число потоков (${w === 0 ? 'Клиентские настройки (0)' : w}) для выбранных клиентов (${count} шт.)?`;
+                submitBtn.textContent = "Установить число потоков";
+                submitBtn.className = "btn btn-primary";
+            } else if (action === 'clear-workers') {
+                titleEl.textContent = "Сбросить число потоков";
+                msgEl.textContent = `Сбросить число потоков до клиентских настроек (0) для выбранных клиентов (${count} шт.)?`;
+                submitBtn.textContent = "Сбросить число потоков";
+                submitBtn.className = "btn btn-danger";
+            } else if (action === 'clear') {
+                titleEl.textContent = "Очистить параметры VK";
+                msgEl.textContent = `Очистить VK токен и VK хеши у выбранных клиентов (${count} шт.)? Они перейдут в обычный режим прямого подключения.`;
+                submitBtn.textContent = "Очистить";
+                submitBtn.className = "btn btn-danger";
+            }
+            currentBatchAction = action;
+            submitBtn.onclick = executeBatchAction;
+            document.getElementById('batchConfirmDlg').showModal();
+        }
+
+        async function executeBatchAction() {
+            const action = currentBatchAction;
+            if (!action) return;
+            const checkedPasses = Array.from(hubSelectedPasswords);
+            const clients = (currentData?.clients || []).filter(c => checkedPasses.includes(c.password));
+
+            const submitBtn = document.getElementById('batchConfirmSubmitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Применение...";
+
+            let hashesVal = null;
+            let tokenVal = null;
+            let workersVal = null;
+
+            if (action === 'token') {
+                tokenVal = true;
+                hashesVal = '';
+            } else if (action === 'clear-token') {
+                tokenVal = false;
+            } else if (action === 'hashes') {
+                const raw = (document.getElementById('hubVkHashesInput')?.value || groupVkHashes || '').trim();
+                hashesVal = raw.split(',').map(s => s.trim()).filter(Boolean).join(',');
+                tokenVal = false;
+            } else if (action === 'clear-hashes') {
+                hashesVal = '';
+            } else if (action === 'workers') {
+                workersVal = parseInt(document.getElementById('hubWorkersInput')?.value || '0', 10) || 0;
+            } else if (action === 'clear-workers') {
+                workersVal = 0;
+                const winp = document.getElementById('hubWorkersInput');
+                if (winp) winp.value = '0';
+            } else if (action === 'clear') {
+                tokenVal = false;
+                hashesVal = '';
+            }
+
+            try {
+                let successCount = 0;
+                for (const c of clients) {
+                    const payload = {};
+                    if (hashesVal !== null) payload.hash = hashesVal;
+                    if (tokenVal !== null) payload.vk_token = tokenVal;
+                    if (workersVal !== null) payload.workers = workersVal;
+
+                    const r = await fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/clients/' + encodeURIComponent(c.password), {
+                        method: 'PUT',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (r.ok) {
+                        successCount++;
+                    }
+                }
+                if (workersVal !== null) {
+                    fetch('/' + encodeURIComponent(adminUuid) + '/api' + '/settings', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({ workers: workersVal })
+                    }).catch(() => {});
+                }
+                document.getElementById('batchConfirmDlg').close();
+                showToast(`Обновлено клиентов: ${successCount} из ${clients.length}`);
+                await loadData();
+                renderHubClientsList();
+                updateHubSelectedCount();
+            } finally {
+                submitBtn.disabled = false;
+            }
+        }
+
+        document.getElementById('linksAndTokensDlg')?.addEventListener('close', () => {
+            hubSelectedPasswords.clear();
+            const selectAll = document.getElementById('hubSelectAll');
+            if (selectAll) selectAll.checked = false;
+        });
+
+        loadData();
+    </script>
+<script>document.addEventListener('csqtt-profile-change', () => { renderHubClientsList(); });</script>
+</body>
+</html>

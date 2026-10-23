@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0a0c">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" type="image/svg+xml" href="/pwa-icon.svg">
+    <link rel="apple-touch-icon" href="/pwa-icon.svg">
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-icon-192.png">
+    <meta property="og:title" content="CSQTT">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="/pwa-icon.svg">
+    <title>CSQTT — Вход</title>
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --surface: #ffffff;
+            --primary: #0077ff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --error: #ef4444;
+            --border: #e2e8f0;
+            --glass: rgba(255, 255, 255, 0.9);
+        }
+
+        html { -webkit-text-size-adjust: none; text-size-adjust: none; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-main); min-height: 100vh; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+
+        main {
+            z-index: 1; width: min(420px, calc(100% - 40px)); background: var(--glass);
+            backdrop-filter: blur(20px); border: 1px solid var(--border); border-radius: 24px;
+            padding: 48px 40px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.05);
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+
+        h1 { text-align: center; font-size: 28px; font-weight: 700; margin-bottom: 36px; color: var(--text-main); }
+
+        .input-group { margin-bottom: 20px; }
+        .input-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .input-group input, .input-group select { width: 100%; height: 52px; background: #f8fafc; border: 1px solid var(--border); border-radius: 14px; padding: 0 16px; font-size: 15px; color: var(--text-main); outline: none; transition: all 0.2s; }
+        .input-group input:focus, .input-group select:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(0, 119, 255, 0.1); }
+
+        button { width: 100%; height: 52px; background: var(--primary); color: white; border: none; border-radius: 14px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-top: 12px; box-shadow: 0 8px 16px rgba(0, 119, 255, 0.25); }
+        button:hover { transform: translateY(-2px); box-shadow: 0 12px 20px rgba(0, 119, 255, 0.35); }
+        button:active { transform: translateY(0); }
+
+        #e { min-height: 20px; color: var(--error); font-size: 14px; font-weight: 500; text-align: center; margin-top: 16px; opacity: 0; }
+    </style>
+    <style>__PANEL_STYLE__</style>
+    <script>__CLIENT_PROFILE_JS__</script>
+</head>
+<body class="login-shell">
+    <main>
+        <div class="eyebrow">CSQTT · управление сервером</div><h1>Вход в панель</h1><p class="login-description">Управляйте доступом и подключайте устройства с CSQTT 2.1.9 и 2.5.0.</p>
+        <form id="f">
+            <div class="input-group">
+                <label for="u">Пользователь</label>
+                <input id="u" autocomplete="username" required>
+            </div>
+            <div class="input-group">
+                <label for="p">Пароль</label>
+                <input id="p" autocomplete="current-password" type="password" required>
+            </div>
+            <button id="submitBtn" type="submit">Войти</button>
+            <div id="e"></div>
+        </form>
+    </main>
+    <script>
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        if (basePath) {
+            document.querySelectorAll('link[rel="manifest"], link[rel="icon"], link[rel="apple-touch-icon"]').forEach(el => {
+                const href = el.getAttribute('href');
+                if (href && href.startsWith('/')) {
+                    el.setAttribute('href', basePath + href);
+                }
+            });
+        }
+        function caesarEncode(s) {
+            const bytes = new TextEncoder().encode(s);
+            let bin = '';
+            for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode((bytes[i] + 47) & 0xff);
+            return 'c1:' + btoa(bin);
+        }
+        f.onsubmit = async x => {
+            x.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const err = document.getElementById('e');
+            err.style.opacity = '0';
+            try {
+                let r = await fetch((basePath || '') + "/api/login", {
+                    method: "POST",
+                    headers: {"content-type": "application/json"},
+                    credentials: "include",
+                    body: JSON.stringify({user: caesarEncode(u.value), pass: caesarEncode(p.value)})
+                });
+                if (r.ok) {
+                    btn.innerHTML = 'Успешно!'; btn.style.background = '#0077ff';
+                    setTimeout(() => {
+                        window.location.href = (basePath || '') + '/';
+                    }, 150);
+                } else {
+                    err.textContent = r.status === 429 ? "Подождите 3 минуты." : "Неверный логин или пароль"; err.style.opacity = '1';
+                }
+            } catch (error) { err.textContent = "Ошибка сети"; err.style.opacity = '1'; }
+        };
+    </script>
+</body>
+</html>

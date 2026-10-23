@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Группа: __GROUP_NAME__</title><link rel="icon" href="/pwa-icon.svg"><script src="/qrcode.min.js"></script>
+<style>* { box-sizing: border-box; margin: 0; } __PANEL_STYLE__</style><script>__CLIENT_PROFILE_JS__</script>
+</head><body class="subscription-shell">
+<header class="subscription-brand"><strong>CSQTT</strong><span>Доступов: __CLIENTS_COUNT__</span></header>
+<section class="subscription-group-controls"><div class="eyebrow">Подключения группы</div><h1>__GROUP_NAME__</h1><div data-profile-controls></div></section>
+<main class="subscription-grid" id="gridContainer"></main><div id="toast" class="toast" role="status"></div>
+<script>
+const clients = __CLIENTS_JSON__;
+function renderClients() {
+    const grid = document.getElementById('gridContainer'); grid.replaceChildren();
+    if (!clients.length) { grid.textContent = 'В этой группе пока нет доступов.'; return; }
+    clients.forEach(client => {
+        const card = document.createElement('section'); card.className = 'subscription-card';
+        const title = document.createElement('h2'); title.textContent = client.name || 'Клиент'; card.append(title);
+        const link = CSQTTProfile.linkFor(client);
+        const qr = document.createElement('div'); qr.className = 'qr-box'; CSQTTProfile.renderQr(qr, link); card.append(qr);
+        if (CSQTTProfile.state.version === '2.1.9' && client.requires_vk_hashes !== false) {
+            const warning = document.createElement('p'); warning.className = 'profile-notice'; warning.textContent = 'Для этого приложения нужны VK-хеши. Обратитесь к владельцу сервера.'; card.append(warning);
+        }
+        const row = document.createElement('div'); row.className = 'link-copy-row';
+        const input = document.createElement('input'); input.value = link; input.readOnly = true; input.setAttribute('aria-label', 'Ссылка подключения'); input.onclick = () => input.select();
+        const copy = document.createElement('button'); copy.textContent = 'Копировать'; copy.onclick = async () => {
+            let copied = false; try { await navigator.clipboard.writeText(link); copied = true; } catch (_) { input.select(); copied = document.execCommand('copy'); }
+            const toast = document.getElementById('toast'); toast.textContent = copied ? 'Ссылка скопирована' : 'Скопируйте выделенную ссылку'; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2500);
+        }; row.append(input, copy); card.append(row);
+        const open = document.createElement('a'); open.className = 'connect-button'; if (link) open.href = link; open.textContent = 'Открыть ' + CSQTTProfile.appName(); card.append(open); grid.append(card);
+    });
+}
+renderClients(); document.addEventListener('csqtt-profile-change', renderClients);
+</script></body></html>

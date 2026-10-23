@@ -1,10 +1,12 @@
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -207,6 +209,10 @@ class BundleTests(unittest.TestCase):
             destination = base / 'extracted'
             subprocess.run(['bash', str(first), '--extract', str(destination)], check=True, capture_output=True)
             for name in ['shared/compat.rs', 'shared/flow_frame.rs', 'rust-server/main.rs',
+                         'rust-server/web/panel.html', 'rust-server/web/client-sub.html',
+                         'rust-server/web/group-sub.html', 'rust-server/web/group-admin.html',
+                         'rust-server/web/login.html', 'rust-server/web/client-profile.js',
+                         'rust-server/web/panel.css',
                          'app/src/main/assets/domains.txt', 'scripts/install_server.py', 'LICENSE']:
                 self.assertEqual((destination / 'csqtt-compatible' / name).read_bytes(), (ROOT / name).read_bytes())
             marker = b'# __CSQTT_SOURCE_PAYLOAD_V1__\n'
@@ -216,6 +222,49 @@ class BundleTests(unittest.TestCase):
             result = subprocess.run(['bash', str(first), '--extract', str(base / 'corrupt')], capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((base / 'corrupt/csqtt-compatible/rust-server/main.rs').exists())
+
+
+class CachedBuildTests(unittest.TestCase):
+    def test_epoch_archive_cannot_reuse_an_older_cached_server(self):
+        """Model Cargo's mtime cache: unchanged-old input dates leave the old binary."""
+        spec = importlib.util.spec_from_file_location('package_installer', ROOT / 'scripts/package_installer.py')
+        pack = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pack)
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            installer = base / 'installer.sh'
+            pack.package(ROOT, installer)
+            target = base / 'target'
+            binary = target / 'x86_64-unknown-linux-gnu/release/csqtt'
+            binary.parent.mkdir(parents=True)
+            binary.write_text('#!/bin/sh\necho stale-cached-server\n')
+            binary.chmod(0o755)
+            old = time.time() - 3600
+            os.utime(binary, (old, old))
+            tools = base / 'tools'
+            tools.mkdir()
+            cargo = tools / 'cargo'
+            cargo.write_text('''#!/usr/bin/env python3
+import hashlib, os, sys
+from pathlib import Path
+if '-vV' in sys.argv:
+    print('host: x86_64-unknown-linux-gnu')
+else:
+    source = Path(sys.argv[sys.argv.index('--manifest-path') + 1]).parent.parent
+    binary = Path(os.environ['CARGO_TARGET_DIR']) / 'x86_64-unknown-linux-gnu/release/csqtt'
+    inputs = [p for p in source.rglob('*') if p.is_file()]
+    if max(p.stat().st_mtime_ns for p in inputs) > binary.stat().st_mtime_ns:
+        digest = hashlib.sha256((source / 'rust-server/web/panel.css').read_bytes()).hexdigest()
+        binary.write_text('#!/bin/sh\\ncase "$1" in\\n--protocol-revision) echo CSQTT-WIRE-3;;\\n*) echo ' + digest + ';;\\nesac\\n')
+        binary.chmod(0o755)
+''')
+            cargo.chmod(0o755)
+            env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'], CARGO_TARGET_DIR=str(target))
+            result = subprocess.run(['bash', str(installer), '--prepare-only', str(base / 'prepared')],
+                                    env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            actual = subprocess.check_output([str(base / 'prepared/csqtt'), '--version'], text=True).strip()
+            self.assertEqual(actual, hashlib.sha256((ROOT / 'rust-server/web/panel.css').read_bytes()).hexdigest())
 
 
 class BootstrapTests(unittest.TestCase):

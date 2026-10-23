@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#f3f6fb"><title>Подключение: __CLIENT_NAME__</title>
+<link rel="icon" href="/pwa-icon.svg"><script src="/qrcode.min.js"></script>
+<style>* { box-sizing: border-box; margin: 0; } __PANEL_STYLE__</style>
+<script>__CLIENT_PROFILE_JS__</script>
+</head>
+<body class="subscription-shell">
+<header class="subscription-brand"><strong>CSQTT</strong><span>Подключение устройства</span></header>
+<main class="subscription-card">
+<div class="eyebrow">Ваш доступ</div><h1>__CLIENT_NAME__</h1>
+<p class="subtitle">Выберите устройство и версию приложения. Откройте подключение на этом устройстве или отсканируйте QR-код с другого.</p>
+<div data-profile-controls></div>
+<div id="clientConfig" data-link="__CSQTT_LINK__" data-legacy-link="__LEGACY_LINK__" data-ios-link="__IOS_LINK__" data-requires-vk-hashes="__REQUIRES_VK_HASHES__" hidden></div>
+<div id="qrCodeContainer" role="img" aria-label="QR-код подключения"></div>
+<p id="profileWarning" class="profile-notice" hidden>Для этого приложения нужны ссылки VK-звонков. Попросите владельца сервера добавить VK-хеши для вашего доступа.</p>
+<div class="link-copy-row"><input id="qrDlgLink" aria-label="Ссылка подключения" readonly onclick="this.select()"><button id="qrDlgCopyBtn" onclick="copyLink()">Копировать</button></div>
+<a id="qrDlgConnectBtn" class="connect-button">Открыть приложение</a>
+<p class="subscription-help">Ещё нет приложения? <a id="profileAppLink" target="_blank" rel="noopener noreferrer">Установить приложение</a>.<br>После импорта нажмите «Подключить» в приложении.</p>
+</main><div id="toast" class="toast" role="status"></div>
+<script>
+const config = document.getElementById('clientConfig').dataset;
+CSQTTProfile.showClient({ link: config.link, legacy_link: config.legacyLink, ios_link: config.iosLink, requires_vk_hashes: config.requiresVkHashes === 'true' });
+async function copyLink() {
+    const input = document.getElementById('qrDlgLink');
+    let copied = false;
+    try { await navigator.clipboard.writeText(input.value); copied = true; } catch (_) {
+        input.select(); copied = document.execCommand('copy');
+    }
+    const toast = document.getElementById('toast');
+    toast.textContent = copied ? 'Ссылка скопирована' : 'Выделите и скопируйте ссылку вручную';
+    toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2500);
+}
+</script>
+</body></html>

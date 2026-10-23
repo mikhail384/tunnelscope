@@ -8,7 +8,7 @@ trap cleanup EXIT
 
 main() {
     local installer_url='https://raw.githubusercontent.com/mikhail384/tunnelscope/csqtt-compatible/install-csqtt.sh'
-    local installer_sha256='38b1af72ec47f4c4f105100580baa4d3545c002df21210989d639fe745efafbb'
+    local installer_sha256='e206c0b39703782b0d2350420bf8c71bc0a30bb1ca09e3ef24f7907c31668c90'
     DOWNLOAD_DIR="$(mktemp -d -t csqtt-download.XXXXXXXX)"
     # The bundled installer reads its own payload, so it must be a real file.
     echo 'Загрузка совместимого CSQTT...'

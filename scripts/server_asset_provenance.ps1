@@ -107,6 +107,8 @@ function Get-BuildInputHash {
     )
     $files += Get-ChildItem -LiteralPath (Join-Path $projectRoot "rust-server") -File -Filter *.rs |
         ForEach-Object { $_.FullName }
+    $files += Get-ChildItem -LiteralPath (Join-Path $projectRoot "rust-server\web") -Recurse -File |
+        Select-Object -ExpandProperty FullName
     $files += Get-ChildItem -LiteralPath (Join-Path $projectRoot "shared") -File -Filter *.rs |
         ForEach-Object { $_.FullName }
     $rootPrefix = $projectRoot.TrimEnd([char[]]@('\', '/')) + [IO.Path]::DirectorySeparatorChar

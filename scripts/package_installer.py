@@ -18,6 +18,7 @@ def package(root: Path, output: Path) -> str:
     files += sorted((root / "rust-server").glob("*.rs"))
     files += [root / "rust-server" / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml")]
     files += sorted((root / "shared").glob("*.rs"))
+    files += sorted(p for p in (root / "rust-server/web").rglob("*") if p.is_file())
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode="w", format=tarfile.PAX_FORMAT) as tar:
         for path in sorted(files):
