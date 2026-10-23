@@ -1,0 +1,33 @@
+name: Verify Ubuntu installation
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regression suite and syntax
+        run: |
+          python3 -B -m unittest discover -s tests -q
+          node --check static/app.js
+          bash -n install.sh
+      - name: Install on clean Ubuntu
+        run: sudo env TUNNELSCOPE_SOURCE="$GITHUB_WORKSPACE" TUNNELSCOPE_SHOW_ACCESS=0 bash install.sh
+      - name: Verify HTTPS, login and imports
+        run: sudo python3 -B -m deploy.verify_install
+        working-directory: /opt/tunnelscope
+      - name: Reinstall and preserve configuration
+        run: |
+          sudo sha256sum /etc/tunnelscope/web.json /etc/tunnelscope/collector.json /etc/tunnelscope/access.txt > /tmp/tunnelscope-config-hashes
+          sudo env TUNNELSCOPE_SOURCE="$GITHUB_WORKSPACE" TUNNELSCOPE_SHOW_ACCESS=0 bash install.sh
+          sudo sha256sum -c /tmp/tunnelscope-config-hashes
+          cd /opt/tunnelscope
+          sudo python3 -B -m deploy.verify_install
+      - name: Package
+        run: python3 -B deploy/package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TunnelScope-Ubuntu
+          path: dist/*

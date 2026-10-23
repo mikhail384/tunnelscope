@@ -1,0 +1,47 @@
+{
+  "interfaces": [
+    {
+      "name": "eth0",
+      "source": "server"
+    }
+  ],
+  "xui_db": "/etc/x-ui/x-ui.db",
+  "csqtt_db": "/etc/csqtt/csqtt.db",
+  "xray_log": "/var/log/x-ui/tunnelscope-access.log",
+  "ingest_socket": "/run/tunnelscope/ingest.sock",
+  "max_flows": 6000,
+  "max_packets_per_second": 4000,
+  "supercell_policy": {
+    "enabled": false,
+    "seconds": 20,
+    "exempt_client_ids": [],
+    "state_file": "/var/lib/tunnelscope-policy/events.json"
+  },
+  "client_catalog": "/var/lib/tunnelscope-policy/client-catalog.json",
+  "adult_policy": {
+    "enabled": false,
+    "exempt_client_ids": [],
+    "state_file": "/var/lib/tunnelscope-policy/denials.json",
+    "list_file": "/var/lib/tunnelscope-policy/adult-domains.db"
+  },
+  "custom_policy": {
+    "enabled": false,
+    "domains": [],
+    "client_domains": {},
+    "exempt_client_ids": []
+  },
+  "speed_limits": {
+    "enabled": false,
+    "download_mbps": 0,
+    "upload_mbps": 0,
+    "clients": {},
+    "state_file": "/var/lib/tunnelscope-policy/speed.json"
+  },
+  "apps_policy": {
+    "enabled": false,
+    "app_ids": [],
+    "clients": {},
+    "exempt_client_ids": [],
+    "state_file": "/var/lib/tunnelscope-policy/apps.json"
+  }
+}
