@@ -394,7 +394,7 @@ class TunVpnService : VpnService() {
             for (i in 1..60) {
                 val socket = android.net.LocalSocket()
                 try {
-                    socket.connect(android.net.LocalSocketAddress("csqtt_tun_uds", android.net.LocalSocketAddress.Namespace.ABSTRACT))
+                    socket.connect(android.net.LocalSocketAddress(CsqttConstants.Tunnel.TUN_SOCKET_NAME, android.net.LocalSocketAddress.Namespace.ABSTRACT))
                     socket.setFileDescriptorsForSend(arrayOf(pfd.fileDescriptor))
                     socket.outputStream.write(1)
                     socket.outputStream.flush()

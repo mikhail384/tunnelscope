@@ -4,7 +4,7 @@
 
 <br>
 
-<img src="https://img.shields.io/badge/Android-SDK_28--37-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android SDK" />
+<img src="https://img.shields.io/badge/Android-SDK_26--37-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android SDK" />
 <img src="https://img.shields.io/badge/Rust-2024-000000?style=for-the-badge&logo=rust&logoColor=white" alt="Rust Core" />
 <img src="https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin" />
 <a href="https://github.com/amurcanov/csqtt/stargazers">
@@ -20,6 +20,9 @@
 **CSQTT** — Android-приложение и высокопроизводительный сервер для создания защищённого туннеля поверх TURN/RTP. Клиент поднимает локальный интерфейс на устройстве, маскируя транспорт под зашифрованный медиатрафик звонка.
 
 Совместимая сборка на базе 2.5.0: [подключение старых клиентов, Windows и iOS](COMPATIBILITY.ru.md), [разбор swg-panel](SWG_PANEL_REVIEW.ru.md).
+
+[**CSQTT Compatible для Android — установка APK и инструкция**](ANDROID.ru.md).
+Версия 2.5.0.4, Android 8.0+, телефоны и планшеты. Устанавливается рядом с оригинальным CSQTT.
 
 [Разбор протокола и оптимизация обработки пакетов](PROTOCOL.ru.md): сборка
 `2.5.0-compatible.4` уменьшает работу планировщика, лишнее копирование и задержки

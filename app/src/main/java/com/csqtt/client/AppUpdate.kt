@@ -18,8 +18,6 @@ private const val GITHUB_RELEASES_URL = CsqttConstants.Update.GITHUB_RELEASES_UR
 private const val GITHUB_LATEST_RELEASE_URL = CsqttConstants.Update.GITHUB_LATEST_RELEASE_URL
 private const val GITHUB_LATEST_RELEASE_WEB_URL = CsqttConstants.Update.GITHUB_LATEST_RELEASE_WEB_URL
 private const val GITHUB_RELEASE_TAG_URL_PREFIX = CsqttConstants.Update.GITHUB_RELEASE_TAG_URL_PREFIX
-private const val GITHUB_TAGS_URL = CsqttConstants.Update.GITHUB_TAGS_URL
-private const val GITHUB_TAG_TREE_URL_PREFIX = CsqttConstants.Update.GITHUB_TAG_TREE_URL_PREFIX
 private const val GITHUB_API_RATE_LIMIT_FALLBACK_MS = CsqttConstants.Timeouts.UPDATE_RATE_LIMIT_COOLDOWN_MS
 private val VERSION_NUMBER_REGEX = CsqttConstants.Patterns.VERSION_NUMBER
 
@@ -43,17 +41,9 @@ enum class RemoteVersionSource {
 }
 
 suspend fun fetchLatestReleaseInfo(localVersion: String? = null): AppReleaseInfo? = withContext(Dispatchers.IO) {
-    val latestRelease = fetchReleaseFromLatestWebRedirect()
+    fetchLatestStableReleaseFromList()
         ?: fetchReleaseFromLatestEndpoint()
-        ?: fetchLatestStableReleaseFromList()
-    val latestTag = fetchLatestTagFromList()
-
-    when {
-        latestRelease == null -> latestTag
-        latestTag == null -> latestRelease
-        isNewerVersion(latestRelease.versionTag, latestTag.versionTag) -> latestTag
-        else -> latestRelease
-    }
+        ?: fetchReleaseFromLatestWebRedirect()
 }
 
 fun isNewerVersion(local: String, remote: String): Boolean {
@@ -90,32 +80,6 @@ private fun fetchLatestStableReleaseFromList(): AppReleaseInfo? {
         }
     }
     return bestRelease
-}
-
-private fun fetchLatestTagFromList(): AppReleaseInfo? {
-    val response = fetchGitHubApi(GITHUB_TAGS_URL) ?: return null
-    val tags = try {
-        JSONArray(response)
-    } catch (e: Exception) {
-        Log.w(UPDATE_LOG_TAG, "[WARN] Update check: failed to parse tags list", e)
-        return null
-    }
-
-    var bestTag: AppReleaseInfo? = null
-    for (i in 0 until tags.length()) {
-        val json = tags.optJSONObject(i) ?: continue
-        val tagName = normalizeVersionTag(json.optString("name"))
-        if (tagName.isBlank()) continue
-        val tag = AppReleaseInfo(
-            versionTag = tagName,
-            releaseUrl = "$GITHUB_TAG_TREE_URL_PREFIX$tagName",
-            source = RemoteVersionSource.Tag
-        )
-        if (bestTag == null || isNewerVersion(bestTag.versionTag, tag.versionTag)) {
-            bestTag = tag
-        }
-    }
-    return bestTag
 }
 
 private fun fetchReleaseFromLatestEndpoint(): AppReleaseInfo? {
@@ -155,7 +119,8 @@ private fun fetchReleaseFromLatestWebRedirect(): AppReleaseInfo? {
             val response = conn.inputStream.bufferedReader().use { it.readText() }
             val versionTag = Regex("/releases/tag/([^\"?#<]+)").find(response)?.groupValues?.getOrNull(1)
             if (!versionTag.isNullOrBlank()) {
-                return AppReleaseInfo(versionTag, "$GITHUB_RELEASE_TAG_URL_PREFIX$versionTag", RemoteVersionSource.Release)
+                val compatible = compatibleAndroidVersion(versionTag) ?: return null
+                return AppReleaseInfo(compatible, "$GITHUB_RELEASE_TAG_URL_PREFIX$versionTag", RemoteVersionSource.Release)
             }
         }
 
@@ -245,8 +210,9 @@ private fun noteGitHubApiCooldown(conn: HttpURLConnection, responseCode: Int, re
     }
 }
 
-private fun JSONObject.toAppReleaseInfo(): AppReleaseInfo? {
-    val versionTag = normalizeVersionTag(optString("tag_name"))
+internal fun JSONObject.toAppReleaseInfo(): AppReleaseInfo? {
+    if (optBoolean("draft") || optBoolean("prerelease")) return null
+    val versionTag = compatibleAndroidVersion(optString("tag_name")) ?: return null
     val releaseUrl = optString("html_url").trim()
     if (versionTag.isBlank() || releaseUrl.isBlank()) return null
     return AppReleaseInfo(versionTag, releaseUrl, RemoteVersionSource.Release)
@@ -263,6 +229,13 @@ internal fun normalizeVersionTag(version: String): String {
     return if (trimmed.startsWith("v", ignoreCase = true)) trimmed else "v$trimmed"
 }
 
+internal fun compatibleAndroidVersion(tag: String): String? {
+    val prefix = "csqtt-android-"
+    if (!tag.startsWith(prefix)) return null
+    val version = tag.removePrefix(prefix)
+    return version.takeIf { Regex("v[0-9]+(?:\\.[0-9]+){2,3}").matches(it) }
+}
+
 private fun extractTagFromReleaseUrl(releaseUrl: String): String? {
     val marker = "/releases/tag/"
     val index = releaseUrl.indexOf(marker)
@@ -272,5 +245,5 @@ private fun extractTagFromReleaseUrl(releaseUrl: String): String? {
         .substringBefore("#")
         .substringBefore("/")
         .takeIf { it.isNotBlank() }
-        ?.let(::normalizeVersionTag)
+        ?.let(::compatibleAndroidVersion)
 }

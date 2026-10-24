@@ -3,7 +3,10 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet("Write", "Verify")]
     [string]$Mode,
-    [string]$Root
+    [string]$Root,
+    [string]$CargoTargetDir,
+    [ValidateSet("rust-client/build_so.bat", "scripts/build_android.sh")]
+    [string]$Producer = "rust-client/build_so.bat"
 )
 
 Set-StrictMode -Version Latest
@@ -20,7 +23,7 @@ $cargoTomlPath = Join-Path $projectRoot "rust-client\Cargo.toml"
 $cargoLockPath = Join-Path $projectRoot "rust-client\Cargo.lock"
 $marker = "CSQTT_RUST_NATIVE_PRODUCTION_V1"
 $schema = "csqtt.native-client-provenance.v3"
-$producer = "rust-client/build_so.bat"
+$producer = $Producer
 $transport = "rust-turn-sans-io-rfc8656-channeldata"
 $transportMarker = "CSQTT_RUST_TURN_SANS_IO_V1"
 $nativeCoreAbi = 1
@@ -54,6 +57,12 @@ $specs = @(
         ElfMachine = 62
     }
 )
+
+if (-not [string]::IsNullOrWhiteSpace($CargoTargetDir)) {
+    foreach ($spec in $specs) {
+        $spec.CargoPath = Join-Path $CargoTargetDir "$($spec.Target)/release/client"
+    }
+}
 
 function Assert-RegularFile {
     param([string]$Path, [string]$Label)
@@ -89,6 +98,8 @@ function Get-BuildInputHash {
         (Join-Path $projectRoot "rust-client\Cargo.lock"),
         (Join-Path $projectRoot "rust-client"),
         (Join-Path $projectRoot "rust-client\vendor\primp"),
+        (Join-Path $projectRoot "rust-client\vendor\netstack-smoltcp"),
+        (Join-Path $projectRoot "scripts\build_android.sh"),
         (Join-Path $projectRoot "scripts\find_android_sdk_ndk.bat"),
         (Join-Path $projectRoot "scripts\native_client_provenance.ps1"),
         (Join-Path $projectRoot "shared")
@@ -317,7 +328,7 @@ catch {
 
 if ($manifest.schema -ne $schema -or
     $manifest.marker -ne $marker -or
-    $manifest.producer -ne $producer -or
+    $manifest.producer -notin @("rust-client/build_so.bat", "scripts/build_android.sh") -or
     $manifest.runtime -ne "rust" -or
     $manifest.buildSystem -ne "cargo-ndk" -or
     $manifest.profile -ne "release" -or

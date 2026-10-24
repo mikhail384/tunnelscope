@@ -2,7 +2,7 @@ package com.csqtt.client
 
 object CsqttConstants {
     object General {
-        const val APP_NAME = "CSQTT"
+        const val APP_NAME = "CSQTT Compatible"
         const val PACKAGE_VK = "com.vkontakte.android"
         const val PACKAGE_VK_CALLS = "com.vk.calls"
         const val CSQTT_EVENT_PREFIX = "__CSQTT_EVENT__|"
@@ -27,6 +27,7 @@ object CsqttConstants {
 
     object Tunnel {
         const val BINARY_NAME = "libclient.so"
+        const val TUN_SOCKET_NAME = "csqtt_compatible_tun_uds"
         const val PROCESS_ENV_EVENTS = "CSQTT_EVENTS"
 
         const val DEFAULT_FINGERPRINT = "firefox"
@@ -85,17 +86,17 @@ object CsqttConstants {
         const val ACTION_UPDATE = "update"
 
         const val GITHUB_RELEASES_URL =
-            "https://api.github.com/repos/amurcanov/csqtt/releases?per_page=30"
+            "https://api.github.com/repos/mikhail384/tunnelscope/releases?per_page=30"
         const val GITHUB_LATEST_RELEASE_URL =
-            "https://api.github.com/repos/amurcanov/csqtt/releases/latest"
+            "https://api.github.com/repos/mikhail384/tunnelscope/releases/latest"
         const val GITHUB_LATEST_RELEASE_WEB_URL =
-            "https://github.com/amurcanov/csqtt/releases/latest"
+            "https://github.com/mikhail384/tunnelscope/releases/latest"
         const val GITHUB_RELEASE_TAG_URL_PREFIX =
-            "https://github.com/amurcanov/csqtt/releases/tag/"
+            "https://github.com/mikhail384/tunnelscope/releases/tag/"
         const val GITHUB_TAGS_URL =
-            "https://api.github.com/repos/amurcanov/csqtt/tags?per_page=100"
+            "https://api.github.com/repos/mikhail384/tunnelscope/tags?per_page=100"
         const val GITHUB_TAG_TREE_URL_PREFIX =
-            "https://github.com/amurcanov/csqtt/tree/"
+            "https://github.com/mikhail384/tunnelscope/tree/"
     }
 
     object Notifications {
@@ -174,10 +175,10 @@ object CsqttConstants {
     }
 
     object Links {
-        const val RELEASES = "https://github.com/amurcanov/csqtt/releases"
-        const val ISSUES = "https://github.com/amurcanov/csqtt/issues/new"
+        const val RELEASES = "https://github.com/mikhail384/tunnelscope/releases"
+        const val ISSUES = "https://github.com/mikhail384/tunnelscope/issues/new"
         const val DEVELOPER_PROFILE = "https://github.com/amurcanov"
-        const val REPOSITORY = "https://github.com/amurcanov/csqtt"
+        const val REPOSITORY = "https://github.com/mikhail384/tunnelscope/tree/csqtt-compatible"
         const val TELEGRAM = "https://t.me/amurcanov_telegram"
         const val TELEGRAM_HANDLE = "t.me/amurcanov_telegram"
     }

@@ -100,6 +100,7 @@ function Get-BuildInputHash {
     $files = @(
         (Join-Path $projectRoot "rust-server\build_linux.bat"),
         (Join-Path $projectRoot "rust-server\build_linux.sh"),
+        (Join-Path $projectRoot "rust-server\.cargo\config.toml"),
         $cargoTomlPath,
         $cargoLockPath,
         $wireProtocolPath,

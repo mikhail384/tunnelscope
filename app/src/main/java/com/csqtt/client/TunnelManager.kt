@@ -1086,7 +1086,7 @@ object TunnelManager {
             "-peer", params.peer,
             "-n", totalWorkers.toString(),
             "-listen", "${CsqttConstants.Network.LOCAL_LISTEN_HOST}:${params.port}",
-            "-tun-uds", "csqtt_tun_uds",
+            "-tun-uds", CsqttConstants.Tunnel.TUN_SOCKET_NAME,
         )
         cmd.add("--device-id")
         cmd.add(android.provider.Settings.Secure.getString(

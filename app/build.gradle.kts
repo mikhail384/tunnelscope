@@ -61,11 +61,11 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "csqtt.quic.amurcanov"
+        applicationId = "com.csqtt.compatible"
         minSdk = 26
         targetSdk = 37
-        versionCode = 230
-        versionName = "2.5.0"
+        versionCode = 250004
+        versionName = "2.5.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
