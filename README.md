@@ -8,20 +8,19 @@
 
 ## Установка одной командой
 
-На Ubuntu 22.04 / 24.04 с systemd и установленным curl:
+На чистой **Ubuntu Server 22.04, 24.04 или 26.04** вставьте одну команду. Она работает от root или пользователя с sudo, даже если curl и Python ещё не установлены:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mikhail384/tunnelscope/main/install.sh | sudo bash
+bash -c 'set -euo pipefail; s=; [ "$(id -u)" -eq 0 ] || s=sudo; $s apt-get -o Acquire::Retries=3 update; $s env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get -o DPkg::Lock::Timeout=180 install -y ca-certificates curl; f=$(mktemp /tmp/tunnelscope-bootstrap.XXXXXXXX); trap "rm -f -- $f" EXIT; curl -fsSL --retry 3 "${TUNNELSCOPE_INSTALLER_URL:-https://raw.githubusercontent.com/mikhail384/tunnelscope/main/install.sh}" -o "$f"; $s bash "$f"'
 ```
 
-Команда устанавливает недостающие системные зависимости, копирует приложение в
+Команда сначала устанавливает curl и корневые сертификаты, затем автоматически ставит Python 3, iproute2, nftables, OpenSSL, passwd, util-linux и необходимые библиотеки через APT. pip, Git и ручная установка пакетов не требуются. После этого установщик копирует приложение в
 `/opt/tunnelscope`, создаёт пользователя и три службы, а затем выводит адрес панели
 и случайный пароль. Существующие настройки, история и пароль сохраняются при обновлении.
 Копии кода находятся в `/var/backups/tunnelscope`, настроек — в `/etc/tunnelscope/install-backup-*`.
 
 Новая установка открывает **HTTPS на порту 9180** с самоподписанным сертификатом.
-Браузер попросит подтвердить доверие сертификату. При сетевом firewall разрешите
-TCP 9180. Для публичного сервиса можно поставить свой HTTPS reverse proxy.
+Браузер попросит подтвердить доверие сертификату. Если UFW включён, установщик разрешает TCP-порт новой панели автоматически. Внешний firewall в панели VPS-провайдера настраивается у провайдера. Для публичного сервиса можно поставить свой HTTPS reverse proxy.
 Установка поверх существующей панели сохраняет её адрес, сертификат и настройки proxy.
 VPN-протоколы, nginx и чужие правила firewall установщик не перенастраивает.
 
@@ -39,6 +38,8 @@ curl -fsSL https://raw.githubusercontent.com/mikhail384/tunnelscope/main/install
 
 Для установки из локальной копии: `sudo env TUNNELSCOPE_SOURCE="$PWD" bash install.sh`.
 Старую директорию `/opt/tunnelscope` не используйте как источник для неё самой.
+Проверить только пакеты без установки служб можно командой `sudo bash install.sh --dependencies-only`.
+Команда устанавливает только TunnelScope и его зависимости. Сами VPN-службы устанавливаются отдельно.
 
 ## Возможности панели
 
@@ -110,7 +111,7 @@ bash -n install.sh
 python3 -B deploy/package.py
 ```
 
-GitHub Actions проверяет код, чистую установку на Ubuntu, HTTPS, авторизацию,
+GitHub Actions проверяет установку на Ubuntu 22.04, 24.04 и 26.04, HTTPS, авторизацию,
 импорт документов и повторную установку с сохранением конфигурации.
 Архивы появляются в `dist/`. Данные доступа, приватные профили, базы и снимки экрана
 не входят в Git-репозиторий. Источники стороннего каталога перечислены в

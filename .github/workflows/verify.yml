@@ -4,8 +4,12 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['22.04', '24.04', '26.04']
+    runs-on: ubuntu-${{ matrix.ubuntu }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Regression suite and syntax
@@ -14,7 +18,8 @@ jobs:
           node --check static/app.js
           bash -n install.sh
       - name: Install on clean Ubuntu
-        run: sudo env TUNNELSCOPE_SOURCE="$GITHUB_WORKSPACE" TUNNELSCOPE_SHOW_ACCESS=0 bash install.sh
+        run: |
+          sudo env TUNNELSCOPE_INSTALLER_URL="file://$GITHUB_WORKSPACE/install.sh" TUNNELSCOPE_SOURCE="$GITHUB_WORKSPACE" TUNNELSCOPE_SHOW_ACCESS=0 bash -c "$(cat install-command.txt)"
       - name: Verify HTTPS, login and imports
         run: sudo python3 -B -m deploy.verify_install
         working-directory: /opt/tunnelscope
@@ -29,5 +34,5 @@ jobs:
         run: python3 -B deploy/package.py
       - uses: actions/upload-artifact@v4
         with:
-          name: TunnelScope-Ubuntu
+          name: TunnelScope-Ubuntu-${{ matrix.ubuntu }}
           path: dist/*

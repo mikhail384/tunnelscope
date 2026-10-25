@@ -10,6 +10,9 @@ import secrets
 import shutil
 import socket
 import subprocess
+import ssl
+import time
+import urllib.request
 import sys
 
 ROOT = pathlib.Path('/opt/tunnelscope')
@@ -65,6 +68,32 @@ def write_private(path, value, gid=None):
     if gid is not None: os.chown(path, 0, gid)
 
 
+def open_panel_port(config):
+    host = config.get('host', '127.0.0.1')
+    if ipaddress.ip_address(host).is_loopback or not shutil.which('ufw'): return
+    status = subprocess.run(['ufw', 'status'], check=True, capture_output=True, text=True, env=dict(os.environ, LC_ALL='C')).stdout
+    if any(line.strip() == 'Status: active' for line in status.splitlines()):
+        run('ufw', 'allow', str(config['port']) + '/tcp', 'comment', 'TunnelScope panel')
+
+
+def wait_for_web(config, attempts=30):
+    host = config.get('host', '127.0.0.1')
+    if host == '0.0.0.0': host = '127.0.0.1'
+    context = None
+    if config.get('tls_cert'):
+        context = ssl.create_default_context(cafile=config['tls_cert'])
+        context.check_hostname = False  # The configured certificate is explicitly trusted.
+    url = ('https' if context else 'http') + '://' + host + ':' + str(config['port']) + '/api/health'
+    last = None
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, context=context, timeout=3) as response:
+                if json.load(response).get('ok') is True: return
+        except (OSError, ValueError) as error: last = error
+        if attempt + 1 < attempts: time.sleep(1)
+    raise SystemExit('Panel health check failed. Run: journalctl -u tunnelscope-web -n 40 --no-pager. ' + str(last or 'Invalid health response'))
+
+
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument('--check', action='store_true'); args = parser.parse_args()
     if args.check:
@@ -81,7 +110,8 @@ def main():
     os.chown(conf, 0, account.pw_gid); conf.chmod(0o750)
     state = pathlib.Path('/var/lib/tunnelscope'); state.mkdir(mode=0o750, exist_ok=True); os.chown(state, account.pw_uid, account.pw_gid)
     private = pathlib.Path('/var/lib/tunnelscope-policy'); private.mkdir(mode=0o700, exist_ok=True); private.chmod(0o700)
-    if not (conf / 'web.json').exists():
+    fresh = not (conf / 'web.json').exists()
+    if fresh:
         port = int(os.environ.get('TUNNELSCOPE_PORT', '9180')); host = os.environ.get('TUNNELSCOPE_BIND', '0.0.0.0')
         if not 1024 <= port <= 65535: raise SystemExit('Port must be between 1024 and 65535')
         ipaddress.IPv4Address(host)
@@ -107,6 +137,9 @@ def main():
     run('systemctl', 'daemon-reload'); run('systemctl', 'enable', 'tunnelscope-web', 'tunnelscope-control', 'tunnelscope-agent')
     run('systemctl', 'stop', 'tunnelscope-agent'); run('systemctl', 'restart', 'tunnelscope-web', 'tunnelscope-control'); run('systemctl', 'start', 'tunnelscope-agent')
     run('systemctl', 'is-active', '--quiet', 'tunnelscope-web', 'tunnelscope-control', 'tunnelscope-agent')
+    installed_web = json.loads((conf / 'web.json').read_text(encoding='utf8'))
+    if fresh: open_panel_port(installed_web)
+    wait_for_web(installed_web)
     print('TunnelScope installed. Credentials: /etc/tunnelscope/access.txt')
     if os.environ.get('TUNNELSCOPE_SHOW_ACCESS','1')=='1' and (conf / 'access.txt').exists(): print((conf / 'access.txt').read_text(encoding='utf8'))
     print('New installations use HTTPS with a self-signed certificate; your browser will ask you to trust it. Existing HTTPS proxy settings are preserved.')

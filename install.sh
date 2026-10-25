@@ -1,24 +1,51 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 022
+export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l
 if [[ ${EUID} -ne 0 ]]; then
-  echo 'Run with sudo: curl -fsSL https://raw.githubusercontent.com/mikhail384/tunnelscope/main/install.sh | sudo bash' >&2
+  echo 'Run this installer as root or with sudo. The complete bootstrap command is in README.md.' >&2
   exit 1
 fi
-if [[ ! -r /etc/os-release ]]; then echo 'Ubuntu is required' >&2; exit 1; fi
+if [[ ! -r /etc/os-release ]]; then echo 'Ubuntu Server is required' >&2; exit 1; fi
 . /etc/os-release
-if [[ ${ID} != ubuntu ]]; then echo 'This installer supports Ubuntu 22.04 and newer' >&2; exit 1; fi
-if ! dpkg --compare-versions "$VERSION_ID" ge 22.04; then echo 'Ubuntu 22.04+ is required' >&2; exit 1; fi
+if [[ ${ID:-} != ubuntu ]]; then echo 'Ubuntu Server 22.04, 24.04 or 26.04 is required' >&2; exit 1; fi
+case ${VERSION_ID:-} in
+  22.04|24.04|26.04) ;;
+  *) echo "Unsupported Ubuntu release: ${VERSION_ID:-unknown}. Supported: 22.04, 24.04, 26.04." >&2; exit 1 ;;
+esac
+deps_only=0
+if [[ ${1:-} == --dependencies-only && $# == 1 ]]; then deps_only=1
+elif (( $# )); then echo 'Usage: bash install.sh [--dependencies-only]' >&2; exit 1; fi
+packages=(ca-certificates curl python3 iproute2 nftables openssl passwd util-linux systemd)
+commands=(curl python3 ip nft openssl useradd flock systemctl)
 missing=()
-for pair in 'python3:python3' 'curl:curl' 'ip:iproute2' 'nft:nftables' 'openssl:openssl'; do
-  command -v "${pair%%:*}" >/dev/null || missing+=("${pair#*:}")
+for package in "${packages[@]}"; do
+  [[ $(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true) == installed ]] || missing+=("$package")
 done
-if [[ ! -f /etc/ssl/certs/ca-certificates.crt ]]; then missing+=(ca-certificates); fi
-if (( ${#missing[@]} )); then
-  apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+need_install=0
+(( ${#missing[@]} )) && need_install=1
+for executable in "${commands[@]}"; do command -v "$executable" >/dev/null || need_install=1; done
+[[ -r /etc/ssl/certs/ca-certificates.crt ]] || need_install=1
+if (( need_install )); then
+  echo "Installing TunnelScope dependencies on Ubuntu $VERSION_ID..."
+  apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update
+  apt-get -o DPkg::Lock::Timeout=180 -o Acquire::Retries=3 install -y --no-install-recommends "${packages[@]}"
 fi
-command -v systemctl >/dev/null || { echo 'systemd is required' >&2; exit 1; }
+for executable in "${commands[@]}"; do
+  command -v "$executable" >/dev/null || { echo "Dependency is unavailable: $executable" >&2; exit 1; }
+done
+python3 - <<'CHECK'
+import hashlib, json, socket, sqlite3, ssl, tarfile, urllib.request, xml.etree.ElementTree, zipfile
+assert ssl.create_default_context().get_ca_certs(), 'System CA certificates are unavailable'
+with sqlite3.connect(':memory:') as db: db.execute('select 1').fetchone()
+CHECK
+if (( deps_only )); then echo "DEPENDENCIES_READY Ubuntu $VERSION_ID"; exit 0; fi
+if [[ ! -d /run/systemd/system ]]; then
+  echo 'Full installation needs Ubuntu Server with systemd running as init. Use --dependencies-only to check packages in a container.' >&2
+  exit 1
+fi
+exec 9>/run/lock/tunnelscope-install.lock
+flock -w 180 9 || { echo 'Another TunnelScope installation is running' >&2; exit 1; }
 TUNNELSCOPE_TMP=$(mktemp -d /tmp/tunnelscope-install.XXXXXXXX)
 trap 'rm -rf -- "$TUNNELSCOPE_TMP"' EXIT
 export TUNNELSCOPE_TMP

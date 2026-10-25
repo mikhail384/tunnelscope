@@ -7,7 +7,7 @@ dest=root/'dist';dest.mkdir(exist_ok=True)
 files=[]
 for folder in ('tunnelscope','static','deploy','tests'):
     files.extend(p for p in (root/folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts)
-files.extend(root/p for p in ('README.md','config.example.json','.gitignore','install.sh','THIRD_PARTY_NOTICES.md'))
+files.extend(root/p for p in ('README.md','config.example.json','.gitignore','install.sh','install-command.txt','THIRD_PARTY_NOTICES.md'))
 def permissions(info):
     info.mode=0o755 if info.isdir() else 0o644
     info.uid=info.gid=0
