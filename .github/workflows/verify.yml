@@ -19,7 +19,7 @@ jobs:
           bash -n install.sh
       - name: Install on clean Ubuntu
         run: |
-          sudo env TUNNELSCOPE_INSTALLER_URL="file://$GITHUB_WORKSPACE/install.sh" TUNNELSCOPE_SOURCE="$GITHUB_WORKSPACE" TUNNELSCOPE_SHOW_ACCESS=0 bash -c "$(cat install-command.txt)"
+          sudo env TUNNELSCOPE_INSTALLER_URL="file://$GITHUB_WORKSPACE/install.sh" TUNNELSCOPE_REF="$GITHUB_SHA" TUNNELSCOPE_SHOW_ACCESS=0 bash -c "$(cat install-command.txt)"
       - name: Verify HTTPS, login and imports
         run: sudo python3 -B -m deploy.verify_install
         working-directory: /opt/tunnelscope

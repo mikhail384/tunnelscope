@@ -30,6 +30,14 @@ class AdultTests(unittest.TestCase):
   self.temp.cleanup()
  def flow(self,cid=None,**kw):
   f={'id':'flow','client_id':cid or self.alice,'source':'xray','domain':'sub.adult-test.invalid','destination':'192.0.2.1','port':443,'evidence':'Xray access'};f.update(kw);return f
+ def test_first_refresh_during_first_minute_after_boot(self):
+  d=DomainList(self.list)
+  try:
+   with patch('tunnelscope.adult.time.monotonic',return_value=1):d.refresh()
+   self.assertTrue(d.contains('sub.adult-test.invalid'))
+   with patch('tunnelscope.adult.time.monotonic',return_value=2),patch('tunnelscope.adult.sqlite3.connect') as connect:d.refresh();connect.assert_not_called()
+  finally:
+   if d.db:d.db.close()
  def test_domain_suffix_boundary_and_ip_rejected(self):
   d=self.policy.adult.domains
   self.assertTrue(d.contains('sub.adult-test.invalid'));self.assertFalse(d.contains('notadult-test.invalid'));self.assertFalse(d.contains('adult-test.invalid.example'));self.assertFalse(d.contains('192.0.2.1'))

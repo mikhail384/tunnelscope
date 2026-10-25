@@ -34,9 +34,9 @@ fi
 for executable in "${commands[@]}"; do
   command -v "$executable" >/dev/null || { echo "Dependency is unavailable: $executable" >&2; exit 1; }
 done
-python3 - <<'CHECK'
+/usr/bin/python3 - <<'CHECK'
 import hashlib, json, socket, sqlite3, ssl, tarfile, urllib.request, xml.etree.ElementTree, zipfile
-assert ssl.create_default_context().get_ca_certs(), 'System CA certificates are unavailable'
+assert ssl.create_default_context(cafile='/etc/ssl/certs/ca-certificates.crt').get_ca_certs(), 'System CA certificates are unavailable'
 with sqlite3.connect(':memory:') as db: db.execute('select 1').fetchone()
 CHECK
 if (( deps_only )); then echo "DEPENDENCIES_READY Ubuntu $VERSION_ID"; exit 0; fi
@@ -56,7 +56,7 @@ else
   if [[ ! $ref =~ ^[A-Za-z0-9._-]+$ ]]; then echo 'Invalid source ref' >&2; exit 1; fi
   curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --max-time 120 \
     "https://codeload.github.com/mikhail384/tunnelscope/tar.gz/$ref" -o "$TUNNELSCOPE_TMP/source.tar.gz"
-  python3 - <<'PY'
+  /usr/bin/python3 - <<'PY'
 import os,pathlib,tarfile
 root=pathlib.Path(os.environ['TUNNELSCOPE_TMP'])/'source';root.mkdir()
 with tarfile.open(root.parent/'source.tar.gz') as archive:
@@ -65,7 +65,8 @@ with tarfile.open(root.parent/'source.tar.gz') as archive:
     for member in entries:
         if member.issym() or member.islnk() or not (root/member.name).resolve().is_relative_to(root): raise SystemExit('Unsafe archive')
         if not (member.isfile() or member.isdir()): raise SystemExit('Invalid source entry')
-    archive.extractall(root,filter='data')
+    if hasattr(tarfile,'data_filter'): archive.extractall(root,filter='data')
+    else: archive.extractall(root)  # Only regular files/directories inside root were accepted above.
 folders=list(root.iterdir())
 if len(folders)!=1 or not folders[0].is_dir(): raise SystemExit('Invalid source layout')
 (root.parent/'source-path').write_text(str(folders[0]))
@@ -73,7 +74,7 @@ PY
   TUNNELSCOPE_SOURCE=$(cat "$TUNNELSCOPE_TMP/source-path")
   export TUNNELSCOPE_SOURCE
 fi
-python3 - <<'PY'
+/usr/bin/python3 - <<'PY'
 import datetime,os,pathlib,shutil
 source=pathlib.Path(os.environ['TUNNELSCOPE_SOURCE']).resolve();target=pathlib.Path('/opt/tunnelscope')
 for name in ('tunnelscope/server.py','static/index.html','deploy/install.py'):
@@ -96,4 +97,4 @@ for name in ('README.md','config.example.json','install.sh'):
     if (source/name).exists(): shutil.copyfile(source/name,target/name)
 PY
 cd /opt/tunnelscope
-python3 -B -m deploy.install
+/usr/bin/python3 -B -m deploy.install

@@ -50,10 +50,10 @@ def hostname(name):
 
 
 class DomainList:
-    def __init__(self,path):self.path=pathlib.Path(path);self.db=None;self.version=0;self.count=0;self.checked=0
+    def __init__(self,path):self.path=pathlib.Path(path);self.db=None;self.version=0;self.count=0;self.checked=None
     def refresh(self):
         now=time.monotonic()
-        if now-self.checked<60:return
+        if self.checked is not None and now-self.checked<60:return
         self.checked=now
         version=self.path.stat().st_mtime_ns
         if version==self.version:return
